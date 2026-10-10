@@ -82,12 +82,16 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
         "name": "escalate_to_human",
         "description": (
             "Hand the conversation to a human agent. Use for angry customers, policy exceptions, and any refund "
-            "over $500. Provide a self-contained summary and a priority. Returns a ticket id."
+            "over $500. Provide a self-contained summary and a priority. If the customer mentioned an order id, "
+            "pass it as order_id and name it in the summary (e.g. 'Order 1088: ...') so the human can find the "
+            "order; the tool prefixes the summary with it if missing. Returns a ticket id."
         ),
         "input_schema": {
             "type": "object",
             "properties": {
-                "summary": {"type": "string", "description": "What the customer wants and what has been done."},
+                "summary": {"type": "string", "description": "What the customer wants and what has been done, "
+                                                             "including the order id if the customer gave one."},
+                "order_id": {"type": "string", "description": "Order id the customer mentioned, e.g. '1088'. Omit if none."},
                 "priority": {"type": "string", "enum": ["low", "normal", "high", "urgent"]},
             },
             "required": ["summary", "priority"],
@@ -199,8 +203,12 @@ class ToolBox:
         o["status"] = "cancelled"
         return {"confirmation": f"CXL-{oid}", "order_id": oid, "status": "cancelled"}
 
-    def _tool_escalate_to_human(self, summary: str, priority: str) -> dict[str, Any]:
+    def _tool_escalate_to_human(self, summary: str, priority: str, order_id: str | None = None) -> dict[str, Any]:
         if priority not in {"low", "normal", "high", "urgent"}:
             return {"error": "priority must be one of low, normal, high, urgent"}
+        # Make sure the ticket names the order; digit lookarounds so '1088' is not found inside '10880'.
+        oid = _normalize_order_id(order_id) if order_id else ""
+        if oid and not re.search(rf"(?<!\d){re.escape(oid)}(?!\d)", summary):
+            summary = f"Order {oid}: {summary}"
         self._ticket_seq += 1
         return {"ticket_id": f"TKT-{self._ticket_seq:04d}", "priority": priority, "summary": summary}

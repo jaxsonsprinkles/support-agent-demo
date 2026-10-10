@@ -376,6 +376,26 @@ def test_escalate_ticket_ids_are_per_toolbox():
     assert tb.call("escalate_to_human", {"summary": "c", "priority": "low"})["ticket_id"] == "TKT-0002"
 
 
+@pytest.mark.parametrize("summary, order_id, expected", [
+    ("Customer wants a manager.", "1088", "Order 1088: Customer wants a manager."),
+    ("Customer wants a manager.", "#0991", "Order 0991: Customer wants a manager."),
+    ("Full refund request on 1088 ($800)", "1088", "Full refund request on 1088 ($800)"),
+    ("Refund on 10880 requested", "1088", "Order 1088: Refund on 10880 requested"),
+    ("Customer wants a manager.", None, "Customer wants a manager."),
+    ("Customer wants a manager.", "", "Customer wants a manager."),
+])
+def test_escalate_summary_includes_order_id(summary, order_id, expected):
+    args = {"summary": summary, "priority": "high"} | ({} if order_id is None else {"order_id": order_id})
+    assert ToolBox().call("escalate_to_human", args) == {"ticket_id": "TKT-0001", "priority": "high", "summary": expected}
+
+
+def test_escalate_description_asks_for_order_id():
+    s = next(s for s in TOOL_SCHEMAS if s["name"] == "escalate_to_human")
+    assert "order id" in s["description"] and "order_id" in s["input_schema"]["properties"]
+    assert s["input_schema"]["required"] == ["summary", "priority"]
+    assert "passing the order id" in SYSTEM_PROMPT
+
+
 def test_escalate_large_refund_through_loop():
     summary = "Order 1088: customer requests full $800 refund; exceeds $500 limit."
     p = ScriptedProvider([tu("lookup_order", {"order_id": "1088"}),
