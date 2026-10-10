@@ -161,22 +161,35 @@ def test_search_help_address_article_stays_out_of_eval_queries(query):
     assert "address-change" not in [a["id"] for a in ToolBox().call("search_help", {"query": query})["articles"]]
 
 
-def test_refund_ok_in_dollars_and_partial():
+def test_refund_ok_in_cents_and_partial():
     tb = ToolBox()
-    r = tb.call("issue_refund", {"order_id": "1007", "amount": 64.0, "reason": "broken"})
-    assert r["amount_usd"] == 64.0 and r["refund_id"].startswith("RF-")
+    r = tb.call("issue_refund", {"order_id": "1007", "amount": 6400, "reason": "broken"})
+    assert r["amount"] == 6400 and type(r["amount"]) is int and r["currency"] == "usd"
+    assert r["refund_id"].startswith("RF-") and "amount_usd" not in r
     assert "already refunded" in tb.call("issue_refund", {"order_id": "1007", "amount": 1, "reason": "x"})["error"]
-    assert ToolBox().call("issue_refund", {"order_id": "1015", "amount": 20, "reason": "x"})["amount_usd"] == 20
+    assert ToolBox().call("issue_refund", {"order_id": "1015", "amount": 7999, "reason": "x"})["amount"] == 7999  # full $79.99
+    assert ToolBox().call("issue_refund", {"order_id": "1015", "amount": 2000, "reason": "x"})["amount"] == 2000
+
+
+def test_refund_schema_takes_integer_cents():
+    schema = next(s for s in TOOL_SCHEMAS if s["name"] == "issue_refund")
+    assert schema["input_schema"]["properties"]["amount"]["type"] == "integer"
+    assert "cents" in schema["description"] and "6400" in schema["description"]
 
 
 @pytest.mark.parametrize("oid,amt,frag", [
-    ("0991", 88.0, "refund window"),       # delivered 45 days ago
-    ("1012", 25.0, "already refunded"),
-    ("1042", 129.0, "not delivered"),      # shipped
-    ("1001", 45.0, "not delivered"),       # processing
-    ("1007", 64.01, "exceeds order total"),
-    ("1007", 0, "positive"),
-    ("4242", 5, "not found"),
+    ("0991", 8800, "refund window"),       # delivered 45 days ago
+    ("1012", 2500, "already refunded"),
+    ("1042", 12900, "not delivered"),      # shipped
+    ("1001", 4500, "not delivered"),       # processing
+    ("1007", 6401, "exceeds order total 6400 cents"),
+    ("1007", 0, "positive integer"),
+    ("1007", -100, "positive integer"),
+    ("1007", 64.0, "integer number of US cents"),   # dollars passed by mistake
+    ("1007", 6400.0, "integer number of US cents"),  # floats are rejected outright, like Stripe
+    ("1007", "6400", "integer number of US cents"),
+    ("1007", True, "integer number of US cents"),
+    ("4242", 500, "not found"),
 ])
 def test_refund_policy_enforced(oid, amt, frag):
     assert frag in ToolBox().call("issue_refund", {"order_id": oid, "amount": amt, "reason": "r"})["error"]
@@ -284,8 +297,8 @@ def test_unknown_tool_and_bad_args():
 
 
 def test_toolbox_state_is_per_instance():
-    ToolBox().call("issue_refund", {"order_id": "1007", "amount": 64, "reason": "r"})
-    assert "error" not in ToolBox().call("issue_refund", {"order_id": "1007", "amount": 64, "reason": "r"})
+    ToolBox().call("issue_refund", {"order_id": "1007", "amount": 6400, "reason": "r"})
+    assert "error" not in ToolBox().call("issue_refund", {"order_id": "1007", "amount": 6400, "reason": "r"})
 
 
 # --- loop ---
@@ -307,16 +320,16 @@ def test_run_result_shape_and_tool_flow():
 
 def test_refund_through_loop():
     p = ScriptedProvider([tu("lookup_order", {"order_id": "1007"}),
-                          tu("issue_refund", {"order_id": "1007", "amount": 64.0, "reason": "broken"}, "t2"),
+                          tu("issue_refund", {"order_id": "1007", "amount": 6400, "reason": "broken"}, "t2"),
                           text("Refunded $64.00")])
     r = run_agent("1007 arrived broken", p)
-    assert r.tool_calls[1]["result"]["amount_usd"] == 64.0 and r.steps == 3
+    assert r.tool_calls[1]["result"]["amount"] == 6400 and r.steps == 3
 
 
 @pytest.mark.parametrize("tool,args", [
     ("lookup_order", {"order_id": "#9999"}),
     ("cancel_order", {"order_id": "order 9999"}),
-    ("issue_refund", {"order_id": "9999", "amount": 5, "reason": "r"}),
+    ("issue_refund", {"order_id": "9999", "amount": 500, "reason": "r"}),
 ])
 def test_unknown_order_reply_apologises_instead_of_raw_error(tool, args):
     p = ScriptedProvider([tu(tool, args), text("Error: order '9999' not found.")])

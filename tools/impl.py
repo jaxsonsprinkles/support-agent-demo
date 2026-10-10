@@ -48,16 +48,17 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
     {
         "name": "issue_refund",
         "description": (
-            "Refund money to the customer for a delivered order. amount is in US dollars (e.g. 64.00 for $64). "
+            "Refund money to the customer for a delivered order. amount is an integer number of US cents, as in "
+            "Stripe (e.g. 6400 for $64.00; convert the order's total_usd by multiplying by 100). "
             "Allowed only if the order was delivered within the last 30 days, has not been refunded already, and "
-            "amount does not exceed the order total. Refunds over $500 must be escalated instead. "
-            "Returns a refund id and the refunded amount."
+            "amount does not exceed the order total. Refunds over $500 (50000 cents) must be escalated instead. "
+            "Returns a refund id and the refunded amount in integer cents with currency 'usd'."
         ),
         "input_schema": {
             "type": "object",
             "properties": {
                 "order_id": {"type": "string"},
-                "amount": {"type": "number", "description": "Refund amount in US dollars."},
+                "amount": {"type": "integer", "description": "Refund amount in US cents, e.g. 6400 for $64.00."},
                 "reason": {"type": "string", "description": "Short reason for the refund."},
             },
             "required": ["order_id", "amount", "reason"],
@@ -165,7 +166,7 @@ class ToolBox:
         ranked = sorted(self.articles, key=lambda a: -score(a))[:3]
         return {"articles": [{"id": a["id"], "title": a["title"], "body": a["body"]} for a in ranked]}
 
-    def _tool_issue_refund(self, order_id: str, amount: float, reason: str) -> dict[str, Any]:
+    def _tool_issue_refund(self, order_id: str, amount: int, reason: str) -> dict[str, Any]:
         o = self.orders.get(str(order_id))
         if not o:
             return {"error": f"order '{order_id}' not found"}
@@ -176,14 +177,17 @@ class ToolBox:
         days = (PINNED_TODAY - date.fromisoformat(o["delivered_date"])).days
         if days > REFUND_WINDOW_DAYS:
             return {"error": f"order {order_id} was delivered {days} days ago; refund window is {REFUND_WINDOW_DAYS} days"}
-        if not isinstance(amount, (int, float)) or amount <= 0:
-            return {"error": "amount must be a positive number of US dollars"}
-        if amount > o["total_usd"] + 1e-9:
-            return {"error": f"amount ${amount:.2f} exceeds order total ${o['total_usd']:.2f}"}
+        # Integer cents only, like Stripe: a float (e.g. 64.0) is most likely dollars passed by mistake.
+        if isinstance(amount, bool) or not isinstance(amount, int) or amount <= 0:
+            return {"error": "amount must be a positive integer number of US cents (e.g. 6400 for $64.00)"}
+        total_cents = round(o["total_usd"] * 100)
+        if amount > total_cents:
+            return {"error": f"amount {amount} cents (${amount / 100:.2f}) exceeds order total "
+                             f"{total_cents} cents (${total_cents / 100:.2f})"}
         self._refund_seq += 1
         rid = f"RF-{self._refund_seq:04d}"
         o["refund_id"] = rid
-        return {"refund_id": rid, "order_id": order_id, "amount_usd": round(float(amount), 2), "reason": reason}
+        return {"refund_id": rid, "order_id": order_id, "amount": amount, "currency": "usd", "reason": reason}
 
     def _tool_cancel_order(self, order_id: str) -> dict[str, Any]:
         oid = _normalize_order_id(order_id)
