@@ -64,6 +64,24 @@ def test_lookup_by_id_keeps_leading_zeros_and_errors_on_blank_or_unknown():
     assert len(tb.call("lookup_order", {"order_id": "  ", "email": "kai.nguyen@example.com"})["orders"]) == 1
 
 
+def test_lookup_estimated_delivery_date_only_for_shipped_orders():
+    tb = ToolBox()
+    shipped = tb.call("lookup_order", {"order_id": "1042"})["orders"][0]
+    assert shipped["ship_date"] == "2026-09-27" and shipped["estimated_delivery_date"] == "2026-10-02"
+    assert tb.call("lookup_order", {"order_id": "1001"})["orders"][0]["estimated_delivery_date"] is None  # processing
+    assert tb.call("lookup_order", {"order_id": "1007"})["orders"][0]["estimated_delivery_date"] is None  # delivered
+    by_email = tb.call("lookup_order", {"email": "ben.ortiz@example.com"})["orders"]
+    assert [o["estimated_delivery_date"] for o in by_email if o["order_id"] == "1042"] == ["2026-10-02"]
+
+
+def test_lookup_keeps_existing_fields_and_does_not_mutate_stored_order():
+    tb = ToolBox()
+    stored = dict(tb.orders["1042"])
+    result = tb.call("lookup_order", {"order_id": "1042"})["orders"][0]
+    assert {k: v for k, v in result.items() if k != "estimated_delivery_date"} == stored
+    assert "estimated_delivery_date" not in tb.orders["1042"]
+
+
 def test_search_help_top3_and_relevance():
     r = ToolBox().call("search_help", {"query": "what is your return window?"})
     assert len(r["articles"]) == 3 and r["articles"][0]["id"] == "returns"

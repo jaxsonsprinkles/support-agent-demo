@@ -7,12 +7,13 @@ from __future__ import annotations
 import copy
 import json
 import re
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
 
 PINNED_TODAY = date(2026, 10, 1)
 REFUND_WINDOW_DAYS = 30
+DELIVERY_ESTIMATE_DAYS = 5
 DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 
 TOOL_SCHEMAS: list[dict[str, Any]] = [
@@ -21,7 +22,8 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
         "description": (
             "Look up a customer's order. Provide either order_id (e.g. '1042') or the customer's email address. "
             "Returns order status (processing, shipped, delivered, refunded), items, total in USD dollars, "
-            "ship date, delivered date and tracking number. Read-only; never changes an order."
+            "ship date, delivered date, tracking number and, for shipped orders, an estimated delivery date "
+            "(ship date + 5 days; null otherwise). Read-only; never changes an order."
         ),
         "input_schema": {
             "type": "object",
@@ -106,6 +108,14 @@ def _normalize_order_id(order_id: str) -> str:
     return _ORDER_ID_PREFIX.sub("", str(order_id)).strip()
 
 
+def _with_delivery_estimate(o: dict[str, Any]) -> dict[str, Any]:
+    """Copy of the order plus estimated_delivery_date (ship date + 5 days) when shipped, else None."""
+    eta = None
+    if o["status"] == "shipped" and o["ship_date"]:
+        eta = (date.fromisoformat(o["ship_date"]) + timedelta(days=DELIVERY_ESTIMATE_DAYS)).isoformat()
+    return {**o, "estimated_delivery_date": eta}
+
+
 class ToolBox:
     """Per-run tool state (refunds issued, tickets opened). Create a fresh one for every run."""
 
@@ -135,11 +145,11 @@ class ToolBox:
         oid = _normalize_order_id(order_id) if order_id else ""
         if oid:
             o = self.orders.get(oid)
-            return {"orders": [o]} if o else {"error": f"order '{oid}' not found"}
+            return {"orders": [_with_delivery_estimate(o)]} if o else {"error": f"order '{oid}' not found"}
         key = _normalize_email(email) if email else ""
         if key:
             found = [o for o in self.orders.values() if _normalize_email(o["customer_email"]) == key]
-            return {"orders": found} if found else {"error": f"no orders for '{email.strip()}'"}
+            return {"orders": [_with_delivery_estimate(o) for o in found]} if found else {"error": f"no orders for '{email.strip()}'"}
         return {"error": "provide order_id or email"}
 
     def _tool_search_help(self, query: str) -> dict[str, Any]:
