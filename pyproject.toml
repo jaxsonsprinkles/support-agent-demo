@@ -1,0 +1,17 @@
+[project]
+name = "support-agent-demo"
+version = "0.1.0"
+description = "Demo customer-support agent used as the target for AgentBisect"
+readme = "README.md"
+requires-python = ">=3.11,<3.14"
+dependencies = [
+    "anthropic>=0.40",
+    "neatlogs>=1.4.26",
+]
+
+[dependency-groups]
+dev = ["pytest>=8"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]

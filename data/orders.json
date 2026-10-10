@@ -1,0 +1,211 @@
+[
+  {
+    "order_id": "1001",
+    "customer_email": "ava.chen@example.com",
+    "status": "processing",
+    "items": [
+      {
+        "name": "Desk Lamp",
+        "quantity": 1,
+        "unit_price_usd": 45.0
+      }
+    ],
+    "total_usd": 45.0,
+    "ship_date": null,
+    "delivered_date": null,
+    "tracking_number": null,
+    "refund_id": null
+  },
+  {
+    "order_id": "1042",
+    "customer_email": "ben.ortiz@example.com",
+    "status": "shipped",
+    "items": [
+      {
+        "name": "Mechanical Keyboard",
+        "quantity": 1,
+        "unit_price_usd": 129.0
+      }
+    ],
+    "total_usd": 129.0,
+    "ship_date": "2026-09-27",
+    "delivered_date": null,
+    "tracking_number": "TRK-884201",
+    "refund_id": null
+  },
+  {
+    "order_id": "1050",
+    "customer_email": "cara.diaz@example.com",
+    "status": "processing",
+    "items": [
+      {
+        "name": "Yoga Mat",
+        "quantity": 2,
+        "unit_price_usd": 22.5
+      },
+      {
+        "name": "Water Bottle",
+        "quantity": 1,
+        "unit_price_usd": 18.0
+      }
+    ],
+    "total_usd": 63.0,
+    "ship_date": null,
+    "delivered_date": null,
+    "tracking_number": null,
+    "refund_id": null
+  },
+  {
+    "order_id": "1023",
+    "customer_email": "dev.patel@example.com",
+    "status": "shipped",
+    "items": [
+      {
+        "name": "Running Shoes",
+        "quantity": 1,
+        "unit_price_usd": 95.0
+      }
+    ],
+    "total_usd": 95.0,
+    "ship_date": "2026-09-29",
+    "delivered_date": null,
+    "tracking_number": "TRK-771930",
+    "refund_id": null
+  },
+  {
+    "order_id": "1007",
+    "customer_email": "eli.novak@example.com",
+    "status": "delivered",
+    "items": [
+      {
+        "name": "Ceramic Mug Set",
+        "quantity": 1,
+        "unit_price_usd": 64.0
+      }
+    ],
+    "total_usd": 64.0,
+    "ship_date": "2026-09-20",
+    "delivered_date": "2026-09-26",
+    "tracking_number": "TRK-660418",
+    "refund_id": null
+  },
+  {
+    "order_id": "1015",
+    "customer_email": "fay.kim@example.com",
+    "status": "delivered",
+    "items": [
+      {
+        "name": "Backpack",
+        "quantity": 1,
+        "unit_price_usd": 79.99
+      }
+    ],
+    "total_usd": 79.99,
+    "ship_date": "2026-09-12",
+    "delivered_date": "2026-09-18",
+    "tracking_number": "TRK-552207",
+    "refund_id": null
+  },
+  {
+    "order_id": "1031",
+    "customer_email": "gus.rossi@example.com",
+    "status": "delivered",
+    "items": [
+      {
+        "name": "Bluetooth Speaker",
+        "quantity": 1,
+        "unit_price_usd": 59.0
+      }
+    ],
+    "total_usd": 59.0,
+    "ship_date": "2026-09-24",
+    "delivered_date": "2026-09-29",
+    "tracking_number": "TRK-903315",
+    "refund_id": null
+  },
+  {
+    "order_id": "0991",
+    "customer_email": "hana.sato@example.com",
+    "status": "delivered",
+    "items": [
+      {
+        "name": "Wool Blanket",
+        "quantity": 1,
+        "unit_price_usd": 88.0
+      }
+    ],
+    "total_usd": 88.0,
+    "ship_date": "2026-08-10",
+    "delivered_date": "2026-08-17",
+    "tracking_number": "TRK-410982",
+    "refund_id": null
+  },
+  {
+    "order_id": "0975",
+    "customer_email": "ivan.petrov@example.com",
+    "status": "delivered",
+    "items": [
+      {
+        "name": "Office Chair",
+        "quantity": 1,
+        "unit_price_usd": 210.0
+      }
+    ],
+    "total_usd": 210.0,
+    "ship_date": "2026-07-30",
+    "delivered_date": "2026-08-06",
+    "tracking_number": "TRK-380114",
+    "refund_id": null
+  },
+  {
+    "order_id": "1012",
+    "customer_email": "jo.lee@example.com",
+    "status": "refunded",
+    "items": [
+      {
+        "name": "Phone Case",
+        "quantity": 1,
+        "unit_price_usd": 25.0
+      }
+    ],
+    "total_usd": 25.0,
+    "ship_date": "2026-09-10",
+    "delivered_date": "2026-09-15",
+    "tracking_number": "TRK-501776",
+    "refund_id": "RF-0001"
+  },
+  {
+    "order_id": "1088",
+    "customer_email": "kai.nguyen@example.com",
+    "status": "delivered",
+    "items": [
+      {
+        "name": "4K Monitor",
+        "quantity": 1,
+        "unit_price_usd": 800.0
+      }
+    ],
+    "total_usd": 800.0,
+    "ship_date": "2026-09-22",
+    "delivered_date": "2026-09-27",
+    "tracking_number": "TRK-700555",
+    "refund_id": null
+  },
+  {
+    "order_id": "1060",
+    "customer_email": "lena.fox@example.com",
+    "status": "delivered",
+    "items": [
+      {
+        "name": "Notebook Pack",
+        "quantity": 3,
+        "unit_price_usd": 12.0
+      }
+    ],
+    "total_usd": 36.0,
+    "ship_date": "2026-09-25",
+    "delivered_date": "2026-09-30",
+    "tracking_number": "TRK-612009",
+    "refund_id": null
+  }
+]
