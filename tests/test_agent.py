@@ -1,3 +1,5 @@
+import json
+
 import pytest
 
 from agent.loop import MAX_STEPS, RunResult, run_agent
@@ -118,6 +120,36 @@ def test_parallel_tool_calls_in_one_step():
                      {"type": "tool_use", "id": "b", "name": "search_help", "input": {"query": "shipping"}}], "tool_use", 1, 1)
     r = run_agent("x", ScriptedProvider([resp, text("ok")]))
     assert [c["name"] for c in r.tool_calls] == ["lookup_order", "search_help"] and r.steps == 2
+
+
+# --- structured logging ---
+def _two_tool_run():
+    resp = Response([{"type": "tool_use", "id": "a", "name": "lookup_order", "input": {"order_id": "1042"}},
+                     {"type": "tool_use", "id": "b", "name": "search_help", "input": {"query": "shipping"}}], "tool_use", 1, 1)
+    return run_agent("x", ScriptedProvider([resp, text("ok")]))
+
+
+@pytest.mark.parametrize("level", ["INFO", "debug", "20"])
+def test_tool_calls_logged_as_json_to_stderr(monkeypatch, capsys, level):
+    monkeypatch.setenv("LOG_LEVEL", level)
+    r = _two_tool_run()
+    out, err = capsys.readouterr()
+    assert out == ""
+    lines = [json.loads(l) for l in err.splitlines()]
+    assert [(l["tool"], l["args"]) for l in lines] == [("lookup_order", {"order_id": "1042"}), ("search_help", {"query": "shipping"})]
+    assert all(l["event"] == "tool_call" and isinstance(l["duration_ms"], float) and l["duration_ms"] >= 0 for l in lines)
+    assert r.reply == "ok" and len(r.tool_calls) == 2
+
+
+@pytest.mark.parametrize("level", [None, "WARNING", "ERROR", "bogus"])
+def test_tool_logs_silent_by_default_and_above_info(monkeypatch, capsys, level):
+    if level is None:
+        monkeypatch.delenv("LOG_LEVEL", raising=False)
+    else:
+        monkeypatch.setenv("LOG_LEVEL", level)
+    r = _two_tool_run()
+    assert capsys.readouterr() == ("", "")
+    assert r.reply == "ok" and len(r.tool_calls) == 2
 
 
 def test_get_provider_rejects_unknown():

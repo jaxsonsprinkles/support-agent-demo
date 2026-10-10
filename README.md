@@ -21,7 +21,7 @@ uv run python -m agent "Where is order 1042?"   # prints reply, tool calls, step
 uv run pytest
 ```
 
-Env vars: `AGENT_PROVIDER` (default `anthropic`; extension point in `agent/provider.py` for Bedrock or the `claude` CLI, not implemented), `AGENT_MODEL` (pinned, default `claude-haiku-5-5`), `JUDGE_MODEL` (eval judge, default `claude-sonnet-5-5`, must outrank the agent), `NEATLOGS_API_KEY` (tracing is a no-op without it), and run tags `AGENTBISECT_COMMIT`, `AGENTBISECT_RUN_ID`, `AGENTBISECT_CASE`, attached as `commit:`, `run:`, `case:` tags (process-wide, so run one case per process).
+Env vars: `AGENT_PROVIDER` (default `anthropic`; extension point in `agent/provider.py` for Bedrock or the `claude` CLI, not implemented), `AGENT_MODEL` (pinned, default `claude-haiku-5-5`), `JUDGE_MODEL` (eval judge, default `claude-sonnet-5-5`, must outrank the agent), `NEATLOGS_API_KEY` (tracing is a no-op without it), `LOG_LEVEL` (`INFO` or `DEBUG` writes one JSON line per tool call to stderr with tool name, args and `duration_ms`; unset, `WARNING` or higher is silent), and run tags `AGENTBISECT_COMMIT`, `AGENTBISECT_RUN_ID`, `AGENTBISECT_CASE`, attached as `commit:`, `run:`, `case:` tags (process-wide, so run one case per process).
 
 Refund policy (enforced in the tool and stated in the prompt): delivered within 30 days, not already refunded, amount at most the order total; amounts are US dollars; refunds over $500 and angry customers go to `escalate_to_human`.
 
