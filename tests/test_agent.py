@@ -53,6 +53,59 @@ def test_search_help_top3_and_relevance():
     assert ToolBox().call("search_help", {"query": "warranty"})["articles"][0]["id"] == "warranty"
 
 
+# Top 3 for returns/shipping/warranty/payment questions, recorded before the gift-cards article existed.
+# New articles must not change these results.
+POLICY_SEARCH_BASELINE = {
+    "What's your return window?": ["returns", "warranty", "payments"],
+    "How long does standard shipping take?": ["shipping", "payments", "returns"],
+    "Do your products come with a warranty?": ["warranty", "returns", "shipping"],
+    "What payment methods do you accept?": ["payments", "returns", "warranty"],
+    "warranty": ["warranty", "payments", "returns"],
+    "shipping": ["shipping", "payments", "returns"],
+    "refund": ["returns", "payments", "shipping"],
+    "Can I return a broken item?": ["returns", "warranty", "shipping"],
+    "my item arrived damaged": ["returns", "shipping", "payments"],
+    "can I get my money back": ["returns", "shipping", "payments"],
+    "how do I track my package": ["shipping", "payments", "returns"],
+    "when will my order arrive": ["shipping", "payments", "returns"],
+    "is accidental damage covered": ["warranty", "payments", "returns"],
+    "do you accept credit cards": ["payments", "returns", "warranty"],
+    "can I pay with PayPal": ["payments", "returns", "shipping"],
+    "can I pay by invoice": ["payments", "returns", "shipping"],
+    "can I exchange an item": ["returns", "shipping", "payments"],
+    "how long do refunds take": ["returns", "shipping", "payments"],
+    "can I cancel my order": ["shipping", "returns", "payments"],
+    "express shipping": ["shipping", "payments", "returns"],
+    "what does the warranty cover": ["warranty", "payments", "returns"],
+    "do you take visa card payments": ["payments", "returns", "shipping"],
+    "I want a refund for my order": ["returns", "shipping", "payments"],
+    "return policy": ["returns", "payments", "shipping"],
+    "repair my product": ["warranty", "payments", "returns"],
+    "how do I pay": ["payments", "returns", "shipping"],
+    "delivery time": ["shipping", "returns", "payments"],
+}
+
+
+@pytest.mark.parametrize("query,expected", POLICY_SEARCH_BASELINE.items())
+def test_search_help_policy_results_unchanged(query, expected):
+    assert [a["id"] for a in ToolBox().call("search_help", {"query": query})["articles"]] == expected
+
+
+def test_search_help_card_query_only_changes_filler_slot():
+    # "card" genuinely matches "Gift cards", so it takes slot 3 from returns, which scored 0 here.
+    ids = [a["id"] for a in ToolBox().call("search_help", {"query": "when is my card charged"})["articles"]]
+    assert ids == ["payments", "shipping", "gift-cards"]
+
+
+@pytest.mark.parametrize("query", [
+    "How do I buy a gift card?", "how do I redeem a gift card", "Do gift cards expire?",
+    "what's the balance on my gift card", "can I use a voucher",
+])
+def test_search_help_finds_gift_cards(query):
+    top = ToolBox().call("search_help", {"query": query})["articles"][0]
+    assert top["id"] == "gift-cards" and "never expire" in top["body"]
+
+
 def test_refund_ok_in_dollars_and_partial():
     tb = ToolBox()
     r = tb.call("issue_refund", {"order_id": "1007", "amount": 64.0, "reason": "broken"})

@@ -34,7 +34,7 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
         "name": "search_help",
         "description": (
             "Search the help center and return the top 3 matching articles (returns and refunds, shipping times, "
-            "warranty, payments). Use for any policy question and quote the article text. Read-only."
+            "warranty, payments, gift cards). Use for any policy question and quote the article text. Read-only."
         ),
         "input_schema": {
             "type": "object",
@@ -127,7 +127,8 @@ class ToolBox:
             s += sum(1 for w in words if w in a["body"].lower() or w in a["title"].lower())
             return s
 
-        ranked = sorted(self.articles, key=lambda a: (-score(a), a["id"]))[:3]
+        # Stable sort: ties keep articles.json order, so a newly appended article never displaces existing ones.
+        ranked = sorted(self.articles, key=lambda a: -score(a))[:3]
         return {"articles": [{"id": a["id"], "title": a["title"], "body": a["body"]} for a in ranked]}
 
     def _tool_issue_refund(self, order_id: str, amount: float, reason: str) -> dict[str, Any]:
