@@ -9,7 +9,7 @@ import os
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
-DEFAULT_MODEL = "claude-haiku-4-5"
+DEFAULT_MODEL = "claude-haiku-5-5"  # the support agent is PINNED to Haiku tier; see evals/models.py
 
 
 @dataclass

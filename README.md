@@ -21,6 +21,10 @@ uv run python -m agent "Where is order 1042?"   # prints reply, tool calls, step
 uv run pytest
 ```
 
-Env vars: `AGENT_PROVIDER` (default `anthropic`; extension point in `agent/provider.py` for Bedrock or the `claude` CLI, not implemented), `AGENT_MODEL` (default `claude-haiku-4-5`), `NEATLOGS_API_KEY` (tracing is a no-op without it), and run tags `AGENTBISECT_COMMIT`, `AGENTBISECT_RUN_ID`, `AGENTBISECT_CASE`, attached as `commit:`, `run:`, `case:` tags (process-wide, so run one case per process).
+Env vars: `AGENT_PROVIDER` (default `anthropic`; extension point in `agent/provider.py` for Bedrock or the `claude` CLI, not implemented), `AGENT_MODEL` (pinned, default `claude-haiku-5-5`), `JUDGE_MODEL` (eval judge, default `claude-sonnet-5-5`, must outrank the agent), `NEATLOGS_API_KEY` (tracing is a no-op without it), and run tags `AGENTBISECT_COMMIT`, `AGENTBISECT_RUN_ID`, `AGENTBISECT_CASE`, attached as `commit:`, `run:`, `case:` tags (process-wide, so run one case per process).
 
 Refund policy (enforced in the tool and stated in the prompt): delivered within 30 days, not already refunded, amount at most the order total; amounts are US dollars; refunds over $500 and angry customers go to `escalate_to_human`.
+
+## Roles and model pinning (short)
+
+Full version: `ROLES.md` in the agentbisect repo. Five separate roles: (1) the history-builder session writes this repo's commits (Entire on, never sees AgentBisect); (2) this support agent, the lab rat, pinned to Haiku (`AGENT_MODEL`, default `claude-haiku-5-5`); (3) the eval judge, pinned to a smarter model (`JUDGE_MODEL`, default `claude-sonnet-5-5`; code guard rejects same-model or haiku-tier judges), temperature 0, structured per-criterion verdict with rubric hash; (4) AgentBisect; (5) the Fixer, which sees only the culprit diff, intent and failing evidence, never history-builder briefs or ground truth. `agent_model`/`judge_model` are written into every eval result and results from different pins are not comparable. The `breaks` ground truth is not in this repo (`agentbisect/evidence/ground_truth.json`).

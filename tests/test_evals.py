@@ -10,9 +10,11 @@ import pytest
 from agent.provider import Response, ScriptedProvider
 from evals import checks as ck
 from evals.cases import CATEGORY_COUNTS, Case, load_cases
-from evals.harness import Baseline, budget_check, build_baseline, run_case, run_suite
-from evals.judge import LLMJudge
+from evals.harness import CaseResult, Baseline, budget_check, build_baseline, run_case, run_suite
+from evals.judge import LLMJudge, rubric_hash
+from evals import models
 from evals import reference as ref
+from evals.harness import compare_reports
 from tools import ToolBox
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -37,12 +39,20 @@ def test_split_sizes_and_categories():
     assert len({c.id for c in allc}) == 24
 
 
-def test_breaks_tags_and_requires_tool():
-    by = {c.id: c for c in load_cases()}
-    for c in by.values():
-        assert c.breaks == {"order_status": "R1", "multi_step": "R1", "refund_within_policy": "R3",
-                            "policy_question": "R2", "escalation": "R2"}.get(c.category, "control")
+def test_requires_tool():
+    for c in load_cases():
         assert (c.requires_tool == "cancel_order") == (c.category in ("cancel_request", "multi_step"))
+
+
+def test_ground_truth_not_in_cases(tmp_path):
+    for line in (ROOT / "evals" / "cases.jsonl").read_text().splitlines():
+        assert not ({"breaks", "intent_for"} & json.loads(line).keys())
+    leaky = tmp_path / "c.jsonl"
+    leaky.write_text(json.dumps(dict(id="x", category="order_status", input="i", breaks="R1", checks={})))
+    with pytest.raises(ValueError, match="ground-truth"):
+        load_cases(leaky)
+    rep = run_suite([case("os1")], ref.good, toolbox_factory=RTB)
+    assert "breaks" not in json.dumps(rep) and "intent_for" not in json.dumps(rep)
 
 
 def test_load_filters_and_validation(tmp_path):
@@ -50,7 +60,7 @@ def test_load_filters_and_validation(tmp_path):
     with pytest.raises(ValueError):
         load_cases(suite="main", ids=["os5"])  # held out
     bad = tmp_path / "c.jsonl"
-    bad.write_text(json.dumps(dict(id="x", category="order_status", input="i", breaks="R1", checks={"nope": 1})))
+    bad.write_text(json.dumps(dict(id="x", category="order_status", input="i", checks={"nope": 1})))
     with pytest.raises(ValueError, match="unknown check"):
         load_cases(bad)
 
@@ -174,7 +184,7 @@ def test_budget_check_rules():
 
 def good_baseline():
     results = [go(c.id) for c in load_cases()]
-    return Baseline(build_baseline(results, {"commit": "good", "provider": "scripted"}))
+    return Baseline(build_baseline(results, {"commit": "good", "provider": "scripted", **models.pinned()}))
 
 
 def test_calibrate_median_and_budget_regression():
@@ -251,16 +261,26 @@ def text(t):
     return Response([{"type": "text", "text": t}], "end_turn", 5, 5)
 
 
+def verdict(ok):
+    crit = [{"criterion": "apologetic", "passed": True, "reason": "apologised"},
+            {"criterion": "no refund promise", "passed": ok, "reason": "ok" if ok else "promised refund"}]
+    return json.dumps({"criteria": crit, "passed": True})  # the model's own overall claim is ignored
+
+
 def test_judge_only_on_rubric_cases_after_checks():
     c = case("es3")
     assert c.rubric
     assert go("es3").judge is None  # off by default
-    j = LLMJudge(ScriptedProvider([text('{"passed": false, "reason": "promised refund"}')]))
+    j = LLMJudge(ScriptedProvider([text(verdict(False))]))
     r = go("es3", judge=j)
-    assert r.status == "fail" and r.judge == {"passed": False, "reason": "promised refund"}
-    j = LLMJudge(ScriptedProvider([text('ok {"passed": true, "reason": "good"}')]))
+    assert r.status == "fail" and r.judge["passed"] is False and r.judge["reason"] == "promised refund"
+    assert r.judge["rubric_sha256"] == rubric_hash(c.rubric) and r.judge["judge_model"] == models.DEFAULT_JUDGE_MODEL
+    assert [x["passed"] for x in r.judge["criteria"]] == [True, False]
+    j = LLMJudge(ScriptedProvider([text("ok " + verdict(True))]))
     assert go("es3", judge=j).status == "pass"
     assert go("os1", judge=LLMJudge(ScriptedProvider([]))).judge is None  # no rubric: judge not called
+    # overall "passed": true cannot override a failed criterion
+    assert go("es3", judge=LLMJudge(ScriptedProvider([text(verdict(False))]))).judge["passed"] is False
     broken = LLMJudge(ScriptedProvider([text("???")]))
     assert go("es3", judge=broken).judge["passed"] is False
     skipped_judge = LLMJudge(ScriptedProvider([]))  # would raise if called: checks failed, so judge must not run
@@ -322,3 +342,59 @@ def test_calibrate_cli_writes_baseline(tmp_path):
     assert len(b["cases"]) == 24 and b["cases"]["os1"]["median_tokens"] == 460 and b["cases"]["os1"]["n"] == 2
     p = cli("run", "--suite", "all", "--baseline", str(out), "--json", *REF)
     assert json.loads(p.stdout)["baseline"]["budget_check"] == "active"
+
+
+# ---- pinned models: judge guard, ids recorded, cross-model comparison refused (all with fakes; no API key)
+class FakeModelProvider(ScriptedProvider):
+    def __init__(self, model, script=()):
+        super().__init__(list(script))
+        self.model = model
+
+
+def test_judge_guard_fails_loudly():
+    agent = models.DEFAULT_AGENT_MODEL
+    LLMJudge(FakeModelProvider(models.DEFAULT_JUDGE_MODEL), agent_model=agent)  # sonnet over haiku: ok
+    LLMJudge(FakeModelProvider("claude-opus-5-5"), agent_model=agent)
+    for bad in (agent, "claude-haiku-4-5", "claude-haiku-5-5-20260101"):  # same model / haiku-tier judge
+        with pytest.raises(models.ModelConfigError):
+            LLMJudge(FakeModelProvider(bad), agent_model=agent)
+    with pytest.raises(models.ModelConfigError, match="higher tier"):  # judge not above agent
+        LLMJudge(FakeModelProvider("claude-sonnet-5-5"), agent_model="claude-sonnet-5-4")
+    with pytest.raises(models.ModelConfigError):
+        models.tier("gpt-4")
+    assert models.DEFAULT_AGENT_MODEL == "claude-haiku-5-5" and models.DEFAULT_JUDGE_MODEL == "claude-sonnet-5-5"
+
+
+def test_env_overrides_and_cli_guard(monkeypatch):
+    monkeypatch.setenv("AGENT_MODEL", "claude-haiku-5-6")
+    monkeypatch.setenv("JUDGE_MODEL", "claude-opus-5-5")
+    assert models.pinned() == {"agent_model": "claude-haiku-5-6", "judge_model": "claude-opus-5-5"}
+    p = cli("run", "--cases", "os1", "--provider", "evals.reference:good", "--toolbox", "evals.reference:ReferenceToolBox",
+            "--json", env={"JUDGE_MODEL": "claude-haiku-5-5"})
+    assert p.returncode != 0 and "haiku-tier" in p.stderr
+
+
+def test_pinned_ids_recorded_in_every_result():
+    rep = run_suite(load_cases(ids=["os1", "ro1"]), ref.good, toolbox_factory=RTB, repeats=2)
+    pins = models.pinned()
+    assert rep["agent_model"] == pins["agent_model"] and rep["judge_model"] == pins["judge_model"]
+    assert all(r["agent_model"] == pins["agent_model"] and r["judge_model"] == pins["judge_model"] for r in rep["results"])
+    base = build_baseline([CaseResult.from_dict(r) for r in rep["results"]], {"commit": "g", **pins})
+    assert base["agent_model"] == pins["agent_model"]
+
+
+def test_cross_model_comparison_refused():
+    a = run_suite(load_cases(ids=["os1"]), ref.good, toolbox_factory=RTB, meta={"agent_model": "claude-haiku-5-5"})
+    b = run_suite(load_cases(ids=["os1"]), ref.good, toolbox_factory=RTB, meta={"agent_model": "claude-haiku-5-6"})
+    assert compare_reports(a, a) == {}
+    with pytest.raises(models.ModelConfigError, match="agent_model"):
+        compare_reports(a, b)
+    c = run_suite(load_cases(ids=["os1"]), ref.good, toolbox_factory=RTB, meta={"judge_model": "claude-opus-5-5"})
+    with pytest.raises(models.ModelConfigError, match="judge_model"):
+        compare_reports(a, c)
+    with pytest.raises(models.ModelConfigError, match="missing"):
+        compare_reports(a, {k: v for k, v in b.items() if k != "agent_model"})
+    # a baseline from different pins is refused by the run itself
+    old = Baseline(build_baseline([], {"commit": "x", "agent_model": "claude-haiku-4-5", "judge_model": "claude-sonnet-5-5"}))
+    with pytest.raises(models.ModelConfigError):
+        run_suite(load_cases(ids=["os1"]), ref.good, toolbox_factory=RTB, baseline=old)

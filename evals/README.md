@@ -6,12 +6,14 @@ this; no live model run has been made.
 
 ## Cases
 
-Fields: `id`, `category`, `input`, `checks`, `breaks` (`R1`|`R2`|`R3`|`control`, the primary regression expected
-to break it), `held_out`, `requires_tool` (case is reported `skipped` if the commit's ToolBox lacks the tool;
-`cancel_order` does not exist at baseline), `intent_for` (regression whose fix must keep it passing), `rubric`
-(optional LLM-judge text).
+Fields: `id`, `category`, `input`, `checks`, `held_out`, `requires_tool` (case is reported `skipped` if the commit's
+ToolBox lacks the tool; `cancel_order` does not exist at baseline), `rubric` (optional LLM-judge text).
 
-| Category | Ids | breaks | Held out |
+The ground-truth `breaks` (R1/R2/R3/control) and `intent_for` tags are NOT in this repo: they would leak the planted
+regressions. They live in `agentbisect/evidence/ground_truth.json`, and `load_cases` rejects them if they reappear.
+The table below is for human orientation only.
+
+| Category | Ids | Regression it exercises | Held out |
 | --- | --- | --- | --- |
 | order_status (5) | os1-os5 | R1 | os5 |
 | refund_within_policy (4) | rw1-rw4 | R3 | rw4 |
@@ -66,30 +68,39 @@ commit/run id inherited. A crashed or timed-out child becomes a `status: "error"
 ```
 {
   "schema_version": 1, "commit": "sha|null", "run_id": "str|null", "suite": "main|held_out|all",
-  "provider": "str", "repeats": 3, "isolated": false, "started_at": "iso8601", "finished_at": "iso8601",
+  "provider": "str", "agent_model": "str", "judge_model": "str", "repeats": 3, "isolated": false, "started_at": "iso8601", "finished_at": "iso8601",
   "baseline": {"loaded": bool, "path": "str|null", "commit": "str|null", "budget_check": "active|<skipped note>"},
   "summary": {"total_runs", "executed", "passed", "failed", "skipped", "errors",
               "pass_rate", "checks_pass_rate", "budget_pass_rate", "total_tokens"},   // rates: null if no denominator
-  "cases": [{"case_id", "category", "held_out", "breaks",
+  "cases": [{"case_id", "category", "held_out",
              "status": "pass|fail|flaky|skipped|error", "runs", "passed", "failed", "skipped", "errors",
              "pass_rate", "checks_pass_rate", "budget_pass_rate", "mean_tokens", "mean_steps"}],
-  "results": [{"case_id", "category", "held_out", "breaks", "repeat",
+  "results": [{"case_id", "category", "held_out", "repeat", "agent_model", "judge_model",
                "status": "pass|fail|skipped|error", "passed": bool,
                "checks": [{"check", "passed", "reason"}], "checks_passed": bool|null,
                "budget": {"status": "pass|fail|partial", "steps", "max_steps", "tokens", "token_limit",
                           "baseline_median_tokens", "token_check", "reason"},
-               "judge": {"passed", "reason"}|null, "reply", "tool_calls": [{"name","args","result"}],
+               "judge": {"passed", "reason", "criteria": [{"criterion","passed","reason"}], "rubric_sha256", "judge_model"}|null, "reply", "tool_calls": [{"name","args","result"}],
                "steps", "input_tokens", "output_tokens", "tokens", "trace_id", "duration_s", "reason"}]
 }
 ```
 
 `pass_rate` is passed / executed (skipped and error runs are excluded from the denominator). `error` means an
 infrastructure failure (provider exception, crashed child): treat it as "no verdict", not "bad commit".
-`flaky` means mixed pass/fail across repeats. `baseline.json` holds `{commit, created_at, provider,
+`flaky` means mixed pass/fail across repeats. `baseline.json` holds `{commit, created_at, provider, agent_model, judge_model,
 token_factor, max_steps, cases: {id: {median_tokens, median_steps, n}}}`.
 
-## Judge
+## Pinned models and the judge
+
+`agent_model` (default `claude-haiku-5-5`, env `AGENT_MODEL`) and `judge_model` (default `claude-sonnet-5-5`, env
+`JUDGE_MODEL`) are recorded in the report, every result and every baseline, so a model never silently drifts
+between commits. `compare_reports` and baseline loading refuse (`ModelConfigError`) when pinned models differ or
+are missing. `evals/models.py` guards the pins (tier order haiku < sonnet < opus/fable): the CLI and `LLMJudge`
+fail loudly if the judge equals the agent model, is haiku-tier, or is not a higher tier than the agent.
 
 `judge.py` is off by default. With `--judge` (or `judge=` in `run_case`), cases that have a `rubric` and whose
-deterministic checks already passed are graded by an LLM; a failed judge verdict fails the case. Only es3 has a
-rubric.
+deterministic checks already passed are graded by the judge (temperature 0, strict rubric, never invoked without a
+rubric). Verdict: per-criterion pass/fail with a reason, `rubric_sha256`, `judge_model`; `passed` is computed as
+"all criteria passed". A failed verdict fails the case. Only es3 has a rubric.
+
+No API key was available when this was built: all judge/pinning tests use fake providers, not real Claude calls.

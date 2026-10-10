@@ -9,6 +9,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+from evals import models
 from evals.cases import CATEGORY_COUNTS, load_cases
 from evals.harness import BASELINE_PATH, REPO_ROOT, Baseline, build_baseline, run_suite, _now, CaseResult
 
@@ -52,7 +53,7 @@ def main(argv: list[str] | None = None) -> int:
     a = _parser().parse_args(argv)
     if a.cmd == "list":
         for c in load_cases():
-            print(f"{c.id}\t{c.category}\t{c.breaks}\t{'held_out' if c.held_out else 'main'}\t{c.input}")
+            print(f"{c.id}\t{c.category}\t{'held_out' if c.held_out else 'main'}\t{c.input}")
         return 0
     if a.commit:
         os.environ["AGENTBISECT_COMMIT"] = a.commit
@@ -61,9 +62,11 @@ def main(argv: list[str] | None = None) -> int:
     commit = os.environ.get("AGENTBISECT_COMMIT") or _git_commit()
     ids = [x for x in (a.cases or "").split(",") if x] or None
     cases = load_cases(suite=a.suite, ids=ids)
+    pins = models.pinned()
+    models.check_judge_model(pins["judge_model"], pins["agent_model"])  # fail loudly on a bad pin, even without --judge
     baseline = None if a.cmd == "calibrate" else Baseline.load(a.baseline)
     meta = {"commit": commit, "run_id": os.environ.get("AGENTBISECT_RUN_ID"), "suite": a.suite,
-            "provider": a.provider or os.environ.get("AGENT_PROVIDER", "anthropic"), "started_at": _now()}
+            "provider": a.provider or os.environ.get("AGENT_PROVIDER", "anthropic"), "started_at": _now(), **pins}
 
     child_args = [x for flag, val in (("--provider", a.provider), ("--toolbox", a.toolbox), ("--baseline", a.baseline))
                   if val for x in (flag, val)]
@@ -81,7 +84,7 @@ def main(argv: list[str] | None = None) -> int:
         if a.cmd == "run" and a.judge:
             from agent.provider import AnthropicProvider
             from evals.judge import LLMJudge
-            judge = LLMJudge(AnthropicProvider(model=os.environ.get("AGENT_JUDGE_MODEL")))
+            judge = LLMJudge(AnthropicProvider(model=pins["judge_model"]), agent_model=pins["agent_model"])
     toolbox_factory = _import_attr(a.toolbox) if a.toolbox else None
 
     def progress(r: CaseResult) -> None:

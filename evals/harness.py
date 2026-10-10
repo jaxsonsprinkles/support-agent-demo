@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 
-from evals import SCHEMA_VERSION
+from evals import SCHEMA_VERSION, models
 from evals.cases import Case
 from evals.checks import run_checks
 
@@ -48,7 +48,8 @@ def build_baseline(results: list["CaseResult"], meta: dict[str, Any]) -> dict[st
             by.setdefault(r.case_id, []).append(r)
     return {
         "schema_version": SCHEMA_VERSION, "commit": meta.get("commit"), "created_at": _now(),
-        "provider": meta.get("provider"), "token_factor": TOKEN_FACTOR, "max_steps": MAX_STEPS_BUDGET,
+        "provider": meta.get("provider"),
+        "agent_model": meta.get("agent_model"), "judge_model": meta.get("judge_model"), "token_factor": TOKEN_FACTOR, "max_steps": MAX_STEPS_BUDGET,
         "cases": {cid: {"median_tokens": statistics.median(r.tokens for r in rs),
                         "median_steps": statistics.median(r.steps for r in rs), "n": len(rs)}
                   for cid, rs in sorted(by.items())},
@@ -61,8 +62,9 @@ class CaseResult:
     case_id: str
     category: str
     held_out: bool
-    breaks: str
     repeat: int = 0
+    agent_model: str | None = None  # pinned ids, recorded in every result (see evals/models.py)
+    judge_model: str | None = None
     status: str = "pass"  # pass | fail | skipped | error
     checks: list[dict[str, Any]] = field(default_factory=list)
     checks_passed: bool | None = None
@@ -121,7 +123,8 @@ def budget_check(steps: int, tokens: int, case_id: str, baseline: Baseline | Non
 # ---------------------------------------------------------------- running
 def run_case(case: Case, provider: Any, *, toolbox_factory: Callable[[], Any] | None = None,
              baseline: Baseline | None = None, judge: Any | None = None, repeat: int = 0,
-             max_steps: int | None = None) -> CaseResult:
+             max_steps: int | None = None, agent_model: str | None = None,
+             judge_model: str | None = None) -> CaseResult:
     """Run one case once. `provider` is a Provider. Never raises for agent/provider failures (status 'error').
 
     Tracing tags (commit/run/case) are process-wide, see evals/README.md; use run_suite(isolate=True) for
@@ -129,7 +132,9 @@ def run_case(case: Case, provider: Any, *, toolbox_factory: Callable[[], Any] | 
     from agent.loop import run_agent
     from tools import ToolBox
 
-    res = CaseResult(case.id, case.category, case.held_out, case.breaks, repeat)
+    res = CaseResult(case.id, case.category, case.held_out, repeat=repeat,
+                     agent_model=agent_model or getattr(provider, "model", None) or models.agent_model(),
+                     judge_model=judge_model or getattr(judge, "model", None) or models.judge_model())
     toolbox = (toolbox_factory or ToolBox)()
     if case.requires_tool and case.requires_tool not in {s["name"] for s in toolbox.schemas}:
         res.status, res.reason = "skipped", f"requires tool '{case.requires_tool}' which this commit does not have"
@@ -169,6 +174,9 @@ def run_suite(cases: list[Case], provider: Any, *, repeats: int = 1, isolate: bo
               child_args: list[str] | None = None, progress: Callable[[CaseResult], None] | None = None
               ) -> dict[str, Any]:
     """Run every case `repeats` times and return the report dict (see evals/README.md)."""
+    meta = {**models.pinned(), **{k: v for k, v in (meta or {}).items() if v is not None}}
+    if baseline is not None:  # never judge a run against a baseline made under different pinned models
+        models.assert_comparable(baseline.data, meta)
     results: list[CaseResult] = []
     for case in cases:
         for rep in range(repeats):
@@ -176,11 +184,12 @@ def run_suite(cases: list[Case], provider: Any, *, repeats: int = 1, isolate: bo
                 r = run_case_isolated(case, rep, child_args or [], meta or {})
             else:
                 r = run_case(case, _make_provider(provider, case), toolbox_factory=toolbox_factory,
-                             baseline=baseline, judge=judge, repeat=rep)
+                             baseline=baseline, judge=judge, repeat=rep,
+                             agent_model=meta["agent_model"], judge_model=meta["judge_model"])
             results.append(r)
             if progress:
                 progress(r)
-    return build_report(results, cases, repeats=repeats, baseline=baseline, isolated=isolate, meta=meta or {})
+    return build_report(results, cases, repeats=repeats, baseline=baseline, isolated=isolate, meta=meta)
 
 
 def run_case_isolated(case: Case, repeat: int, child_args: list[str], meta: dict[str, Any]) -> CaseResult:
@@ -197,7 +206,8 @@ def run_case_isolated(case: Case, repeat: int, child_args: list[str], meta: dict
         r = CaseResult.from_dict(out["results"][0])
     except Exception as e:
         stderr = locals().get("p") and p.stderr[-300:]
-        r = CaseResult(case.id, case.category, case.held_out, case.breaks, status="error",
+        r = CaseResult(case.id, case.category, case.held_out, status="error",
+                       agent_model=meta.get("agent_model"), judge_model=meta.get("judge_model"),
                        reason=f"isolated run failed: {type(e).__name__}: {e} {stderr or ''}".strip())
     r.repeat = repeat
     return r
@@ -229,7 +239,7 @@ def build_report(results: list[CaseResult], cases: list[Case], *, repeats: int, 
         else:
             st = "flaky"
         per_case.append({
-            "case_id": c.id, "category": c.category, "held_out": c.held_out, "breaks": c.breaks, "status": st,
+            "case_id": c.id, "category": c.category, "held_out": c.held_out, "status": st,
             "runs": len(rs), "passed": n_pass, "failed": sum(r.status == "fail" for r in rs),
             "skipped": sum(r.status == "skipped" for r in rs), "errors": sum(r.status == "error" for r in rs),
             "pass_rate": _rate(n_pass, len(ex)),
@@ -242,7 +252,8 @@ def build_report(results: list[CaseResult], cases: list[Case], *, repeats: int, 
     return {
         "schema_version": SCHEMA_VERSION,
         "commit": meta.get("commit"), "run_id": meta.get("run_id"), "suite": meta.get("suite"),
-        "provider": meta.get("provider"), "repeats": repeats, "isolated": isolated,
+        "provider": meta.get("provider"),
+        "agent_model": meta.get("agent_model"), "judge_model": meta.get("judge_model"), "repeats": repeats, "isolated": isolated,
         "started_at": meta.get("started_at") or _now(), "finished_at": _now(),
         "baseline": {"loaded": baseline is not None, "path": baseline.path if baseline else None,
                      "commit": baseline.data.get("commit") if baseline else None,
@@ -259,3 +270,12 @@ def build_report(results: list[CaseResult], cases: list[Case], *, repeats: int, 
         "cases": per_case,
         "results": [r.to_dict() for r in results],
     }
+
+
+def compare_reports(a: dict[str, Any], b: dict[str, Any]) -> dict[str, Any]:
+    """Per-case status/pass-rate diff between two reports. Raises ModelConfigError if the reports were produced
+    under different pinned agent/judge models (or either lacks them): the comparison would be meaningless."""
+    models.assert_comparable(a, b)
+    ca, cb = {c["case_id"]: c for c in a["cases"]}, {c["case_id"]: c for c in b["cases"]}
+    return {cid: {"from": ca[cid]["status"], "to": cb[cid]["status"], "pass_rate": [ca[cid]["pass_rate"], cb[cid]["pass_rate"]]}
+            for cid in ca.keys() & cb.keys() if ca[cid]["status"] != cb[cid]["status"]}
