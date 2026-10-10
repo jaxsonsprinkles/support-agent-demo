@@ -78,6 +78,11 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
 ]
 
 
+def _normalize_email(email: str) -> str:
+    """Case-insensitive, whitespace-free key; emails never legitimately contain whitespace."""
+    return "".join(email.split()).casefold()
+
+
 class ToolBox:
     """Per-run tool state (refunds issued, tickets opened). Create a fresh one for every run."""
 
@@ -107,9 +112,10 @@ class ToolBox:
         if order_id:
             o = self.orders.get(str(order_id).lstrip("#"))
             return {"orders": [o]} if o else {"error": f"order '{order_id}' not found"}
-        if email:
-            found = [o for o in self.orders.values() if o["customer_email"].lower() == email.lower()]
-            return {"orders": found} if found else {"error": f"no orders for '{email}'"}
+        key = _normalize_email(email) if email else ""
+        if key:
+            found = [o for o in self.orders.values() if _normalize_email(o["customer_email"]) == key]
+            return {"orders": found} if found else {"error": f"no orders for '{email.strip()}'"}
         return {"error": "provide order_id or email"}
 
     def _tool_search_help(self, query: str) -> dict[str, Any]:

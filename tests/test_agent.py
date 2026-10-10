@@ -31,6 +31,21 @@ def test_lookup_by_id_and_email():
     assert "error" in tb.call("lookup_order", {})
 
 
+@pytest.mark.parametrize("email", [
+    "kai.nguyen@example.com", "KAI.NGUYEN@EXAMPLE.COM", "  Kai.Nguyen@Example.com  ",
+    "\tkai.nguyen@example.com\n", "kai.nguyen @ example.com",
+])
+def test_lookup_by_email_ignores_case_and_whitespace(email):
+    orders = ToolBox().call("lookup_order", {"email": email})["orders"]
+    assert [o["customer_email"].lower() for o in orders] == ["kai.nguyen@example.com"]
+
+
+def test_lookup_by_blank_or_unknown_email_errors():
+    tb = ToolBox()
+    assert tb.call("lookup_order", {"email": "   "}) == {"error": "provide order_id or email"}
+    assert tb.call("lookup_order", {"email": " nobody@example.com "}) == {"error": "no orders for 'nobody@example.com'"}
+
+
 def test_search_help_top3_and_relevance():
     r = ToolBox().call("search_help", {"query": "what is your return window?"})
     assert len(r["articles"]) == 3 and r["articles"][0]["id"] == "returns"
