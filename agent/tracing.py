@@ -1,12 +1,17 @@
 """neatlogs instrumentation. Every function no-ops if NEATLOGS_API_KEY is missing or neatlogs fails."""
 from __future__ import annotations
 
+import contextlib
+import contextvars
+import json
 import os
 import uuid
-from typing import Any, Callable
+from typing import Any, Callable, Iterator
 
 WORKFLOW_NAME = "support-agent"
+CASE_SPAN = "support_case"  # name of the per-case parent span opened by the harness / CLI
 _enabled = False
+_trace_id: contextvars.ContextVar[str] = contextvars.ContextVar("trace_id", default="")
 
 
 def run_tags() -> list[str]:
@@ -43,29 +48,58 @@ def wrap_client(client: Any) -> Any:
     return neatlogs.wrap(client)
 
 
-def traced(fn: Callable) -> Callable:
-    """Group a whole agent run into one root span (one trace) when tracing is on.
+class _NullSpan:
+    def set_attribute(self, *a: Any, **k: Any) -> None: ...
+    def record_exception(self, *a: Any, **k: Any) -> None: ...
 
-    Uses neatlogs' internal tracer because @neatlogs.span did not expose a recordable OTel span context
-    (so the trace id could not be read). Falls back to untraced if that private API changes."""
-    def inner(*a, **kw):
-        if not _enabled:
-            return fn(*a, **kw)
-        try:
-            from neatlogs._wrap_utils import get_tracer
 
-            cm = get_tracer().start_as_current_span(
-                "support-agent.run", attributes={"openinference.span.kind": "AGENT"})
+@contextlib.contextmanager
+def span(name: str, kind: str = "CHAIN", **attributes: Any) -> Iterator[Any]:
+    """Public neatlogs `trace()` context manager: a child span of the active trace, or a new root trace.
+
+    Yields an OTel span (or a no-op stand-in when tracing is off). Attribute values must be primitives."""
+    if not _enabled:
+        yield _NullSpan()
+        return
+    import neatlogs
+
+    with neatlogs.trace(name, kind=kind, **attributes) as sp:
+        token = None
+        try:  # neatlogs uses its own tracer provider, so the OTel global current span is not set: remember ours
+            ctx = sp.get_span_context()
+            if ctx.is_valid:
+                token = _trace_id.set(format(ctx.trace_id, "032x"))
         except Exception:
-            return fn(*a, **kw)
-        with cm:
+            pass
+        try:
+            yield sp
+        finally:
+            if token is not None:
+                _trace_id.reset(token)
+
+
+def set_json(sp: Any, key: str, value: Any) -> None:
+    """Attach a JSON-serialised (truncated) attribute to a span; never raises."""
+    try:
+        sp.set_attribute(key, json.dumps(value, default=str)[:4000])
+    except Exception:
+        pass
+
+
+def traced(fn: Callable) -> Callable:
+    """Run an agent run inside an `agent.run` span (kind AGENT). It nests under the caller's `support_case`
+    span (eval harness / CLI) so everything lands in one trace; with no parent it becomes the root."""
+    def inner(*a, **kw):
+        with span("agent.run", "AGENT"):
             return fn(*a, **kw)
     inner.__name__ = fn.__name__
     return inner
 
 
 def current_trace_id() -> str:
-    """Hex OpenTelemetry trace id of the active span, or a local uuid when tracing is off."""
+    """Hex OpenTelemetry trace id of the active neatlogs span, or a local uuid when tracing is off."""
+    if _trace_id.get():
+        return _trace_id.get()
     try:
         from opentelemetry import trace
 

@@ -130,6 +130,7 @@ def run_case(case: Case, provider: Any, *, toolbox_factory: Callable[[], Any] | 
     Tracing tags (commit/run/case) are process-wide, see evals/README.md; use run_suite(isolate=True) for
     per-case tags."""
     from agent.loop import run_agent
+    from agent.tracing import CASE_SPAN, span
     from tools import ToolBox
 
     res = CaseResult(case.id, case.category, case.held_out, repeat=repeat,
@@ -141,7 +142,9 @@ def run_case(case: Case, provider: Any, *, toolbox_factory: Callable[[], Any] | 
         return res
     t0 = time.time()
     try:
-        run = run_agent(case.input, provider, toolbox, max_steps)
+        # one parent span per case run: every model call and tool call below becomes a child of one trace
+        with span(CASE_SPAN, "WORKFLOW", **{"case.id": case.id, "case.category": case.category, "case.repeat": repeat}):
+            run = run_agent(case.input, provider, toolbox, max_steps)
     except Exception as e:  # provider/network/agent crash: infra problem, not a behavioral verdict
         res.status, res.reason, res.duration_s = "error", f"{type(e).__name__}: {e}", round(time.time() - t0, 3)
         return res

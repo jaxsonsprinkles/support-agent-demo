@@ -9,7 +9,7 @@ from typing import Any
 from agent.logs import log_message_truncated, log_tool_call
 from agent.prompt import SYSTEM_PROMPT
 from agent.provider import Provider
-from agent.tracing import current_trace_id, traced
+from agent.tracing import current_trace_id, set_json, span, traced
 from tools import ToolBox
 
 MAX_STEPS = 12  # model calls per run; leaves room for verification searches and retries
@@ -72,7 +72,12 @@ def _run(message: str, provider: Provider, toolbox: ToolBox, max_steps: int) -> 
         results = []
         for tu in r.tool_uses:
             t0 = time.perf_counter()
-            out = toolbox.call(tu["name"], tu["input"])
+            with span(f"tool:{tu['name']}", "TOOL", **{"tool.name": tu["name"]}) as sp:
+                set_json(sp, "tool.args", tu["input"])
+                out = toolbox.call(tu["name"], tu["input"])
+                set_json(sp, "tool.result", out)
+                if isinstance(out, dict) and "error" in out:
+                    sp.set_attribute("tool.error", str(out["error"])[:500])
             log_tool_call(tu["name"], tu["input"], (time.perf_counter() - t0) * 1000)
             res.tool_calls.append({"name": tu["name"], "args": tu["input"], "result": out})
             results.append({"type": "tool_result", "tool_use_id": tu["id"], "content": json.dumps(out)})

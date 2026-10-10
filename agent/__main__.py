@@ -6,7 +6,7 @@ from typing import Any
 
 from agent.loop import run_agent
 from agent.provider import get_provider
-from agent.tracing import init_tracing, shutdown_tracing
+from agent.tracing import CASE_SPAN, init_tracing, shutdown_tracing, span
 
 
 def format_tool_calls(tool_calls: list[dict[str, Any]]) -> str:
@@ -34,7 +34,8 @@ def main(argv: list[str]) -> int:
     init_tracing()  # before the client is created so it can be wrapped
     try:
         t0 = time.perf_counter()
-        result = run_agent(args.message, get_provider())
+        with span(CASE_SPAN, "WORKFLOW"):
+            result = run_agent(args.message, get_provider())
         latency_ms = round((time.perf_counter() - t0) * 1000, 1)  # total wall-clock: model calls + tools
         print(json.dumps({**result.to_dict(), "latency_ms": latency_ms}, indent=2), flush=True)
         if args.verbose:
