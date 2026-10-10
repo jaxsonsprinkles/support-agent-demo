@@ -35,7 +35,7 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
         "name": "search_help",
         "description": (
             "Search the help center and return the top 3 matching articles (returns and refunds, shipping times, "
-            "warranty, payments, gift cards). Use for any policy question and quote the article text. Read-only."
+            "warranty, payments, gift cards, address changes). Use for any policy question and quote the article text. Read-only."
         ),
         "input_schema": {
             "type": "object",

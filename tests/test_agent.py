@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 
 import pytest
 
@@ -121,6 +122,25 @@ def test_search_help_card_query_only_changes_filler_slot():
 def test_search_help_finds_gift_cards(query):
     top = ToolBox().call("search_help", {"query": query})["articles"][0]
     assert top["id"] == "gift-cards" and "never expire" in top["body"]
+
+
+@pytest.mark.parametrize("query", [
+    "How do I change my shipping address?", "I entered the wrong address", "wrong shipping address",
+    "can I update the delivery address on my order", "I moved, can you send it to my new address",
+])
+def test_search_help_finds_address_change(query):
+    top = ToolBox().call("search_help", {"query": query})["articles"][0]
+    assert top["id"] == "address-change" and "only while a purchase is processing" in top["body"]
+
+
+EVAL_CASES = Path(__file__).resolve().parent.parent / "evals" / "cases.jsonl"
+
+
+@pytest.mark.parametrize("query", [c["input"] for c in map(json.loads, EVAL_CASES.read_text().splitlines())
+                                   if isinstance(c["input"], str)])
+def test_search_help_address_article_stays_out_of_eval_queries(query):
+    # No eval case is about addresses, so the new article must not take a slot on any of them.
+    assert "address-change" not in [a["id"] for a in ToolBox().call("search_help", {"query": query})["articles"]]
 
 
 def test_refund_ok_in_dollars_and_partial():
