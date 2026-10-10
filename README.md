@@ -24,7 +24,37 @@ uv run pytest
 
 Env vars: `AGENT_PROVIDER` (default `anthropic`; extension point in `agent/provider.py` for Bedrock or the `claude` CLI, not implemented), `AGENT_MODEL` (pinned, default `claude-haiku-5-5`), `JUDGE_MODEL` (eval judge, default `claude-sonnet-5-5`, must outrank the agent), `NEATLOGS_API_KEY` (tracing is a no-op without it), `LOG_LEVEL` (`INFO` or `DEBUG` writes one JSON line per tool call to stderr with tool name, args and `duration_ms`; unset, `WARNING` or higher is silent), and run tags `AGENTBISECT_COMMIT`, `AGENTBISECT_RUN_ID`, `AGENTBISECT_CASE`, attached as `commit:`, `run:`, `case:` tags (process-wide, so run one case per process).
 
-Refund policy (enforced in the tool and stated in the prompt): delivered within 30 days, not already refunded, amount at most the order total; amounts are US dollars; refunds over $500 and angry customers go to `escalate_to_human`.
+Refund policy (enforced in the tool and stated in the prompt): delivered within 30 days, not already refunded, amount at most the order total; `issue_refund` takes and returns integer US cents (order totals are `total_usd` dollars); refunds over $500 and angry customers go to `escalate_to_human`.
+
+## Tools reference
+
+Schemas and mock implementations live in `tools/impl.py`; every run gets a fresh `ToolBox`, so refunds and tickets never leak between runs.
+
+| Tool | Input | Returns | Notes |
+|---|---|---|---|
+| `lookup_order` | `order_id` or `email` | `orders`: status, items, `total_usd`, ship/delivered dates, tracking, `estimated_delivery_date` | Read-only. Accepts `#1042` / `order 1042`; email match ignores case and whitespace. ETA is ship date + 5 days for shipped orders, else `null` |
+| `search_help` | `query` | top 3 `articles` (id, title, body) | Read-only. Covers returns and refunds, shipping times, warranty, payments, gift cards, address changes, international shipping and customs |
+| `issue_refund` | `order_id`, `amount` (integer cents), `reason` | `refund_id`, `amount` (cents), `currency: "usd"` | Delivered within 30 days, not already refunded, amount ≤ order total. Floats and non-positive amounts are rejected. Over $500 (50000 cents): escalate instead |
+| `cancel_order` | `order_id` | `confirmation` (`CXL-<id>`), `status: "cancelled"` | Only `processing` orders; shipped or delivered orders get a return instead. Irreversible |
+| `escalate_to_human` | `summary`, `priority` (`low`/`normal`/`high`/`urgent`), optional `order_id` | `ticket_id`, `priority`, `summary` | Prefixes the summary with `Order <id>:` if the id isn't already in it |
+
+Errors come back as `{"error": "..."}` rather than exceptions, so the model can read and recover from them.
+
+## Changelog
+
+Recent features, newest first (see `git log` for the full history):
+
+- **Help center**: international shipping and customs, address changes and gift cards articles.
+- **`escalate_to_human`**: optional `order_id`; ticket summaries always name the order.
+- **`issue_refund`**: amounts are integer US cents in and out, matching Stripe; new tests for policy limits and escalation tickets.
+- **Refund replies**: the agent tells customers refunds typically appear within 5 to 7 business days.
+- **CLI**: total wall-clock `latency_ms` in the JSON output; `--verbose` prints each tool call and result on stderr.
+- **`lookup_order`**: `estimated_delivery_date` for shipped orders; order ids normalised (`#1042`, `order 1042`); email lookup tolerant of case and whitespace.
+- **Agent loop**: customer messages capped at 2000 characters (truncation is logged); the agent verifies replies with `search_help` and retries uncertain tool calls (max 12 model calls).
+- **`cancel_order`**: new tool for unshipped (processing) orders, with edge-case tests (unknown, shipped, delivered, already cancelled).
+- **Tone**: friendly opener and "anything else" closer; apologises and asks the customer to double-check unknown order ids.
+- **Observability**: structured JSON logging for tool calls, gated by `LOG_LEVEL`.
+- **Evals**: pinned agent and judge models with a strict structured judge, on top of the 24-case eval suite.
 
 ## Roles and model pinning (short)
 
