@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from agent.loop import MAX_STEPS, RunResult, run_agent, unknown_order_reply
+from agent.loop import MAX_MESSAGE_CHARS, MAX_STEPS, RunResult, run_agent, unknown_order_reply
 from agent.provider import Response, ScriptedProvider, get_provider
 from agent.prompt import SYSTEM_PROMPT
 from tools import TOOL_SCHEMAS, ToolBox
@@ -380,6 +380,36 @@ def test_tool_logs_silent_by_default_and_above_info(monkeypatch, capsys, level):
     r = _two_tool_run()
     assert capsys.readouterr() == ("", "")
     assert r.reply == "ok" and len(r.tool_calls) == 2
+
+
+@pytest.mark.parametrize("length", [MAX_MESSAGE_CHARS - 1, MAX_MESSAGE_CHARS])
+def test_message_at_or_under_cap_passes_through_unlogged(monkeypatch, capsys, length):
+    monkeypatch.delenv("LOG_LEVEL", raising=False)
+    p = ScriptedProvider([text("ok")])
+    run_agent("a" * length, p)
+    assert p.calls[0]["messages"][0]["content"] == "a" * length
+    assert capsys.readouterr() == ("", "")
+
+
+def test_long_message_truncated_with_warning_log(monkeypatch, capsys):
+    monkeypatch.delenv("LOG_LEVEL", raising=False)
+    msg = "x" * MAX_MESSAGE_CHARS + "TAIL" * 100
+    p = ScriptedProvider([text("ok")])
+    r = run_agent(msg, p)
+    assert p.calls[0]["messages"][0]["content"] == "x" * MAX_MESSAGE_CHARS
+    assert r.reply == "ok"
+    out, err = capsys.readouterr()
+    assert out == "" and "TAIL" not in err  # message content is never logged
+    assert json.loads(err) == {"level": "WARNING", "event": "message_truncated",
+                               "original_length": len(msg), "max_length": MAX_MESSAGE_CHARS}
+
+
+def test_truncation_log_silenced_above_warning(monkeypatch, capsys):
+    monkeypatch.setenv("LOG_LEVEL", "ERROR")
+    p = ScriptedProvider([text("ok")])
+    run_agent("y" * (MAX_MESSAGE_CHARS + 1), p)
+    assert len(p.calls[0]["messages"][0]["content"]) == MAX_MESSAGE_CHARS
+    assert capsys.readouterr() == ("", "")
 
 
 def test_get_provider_rejects_unknown():

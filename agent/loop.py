@@ -6,13 +6,14 @@ import time
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
-from agent.logs import log_tool_call
+from agent.logs import log_message_truncated, log_tool_call
 from agent.prompt import SYSTEM_PROMPT
 from agent.provider import Provider
 from agent.tracing import current_trace_id, traced
 from tools import ToolBox
 
 MAX_STEPS = 12  # model calls per run; leaves room for verification searches and retries
+MAX_MESSAGE_CHARS = 2000  # longer customer messages are truncated (and the truncation logged)
 _UNKNOWN_ORDER = re.compile(r"^order '(.*)' not found$")
 
 
@@ -47,7 +48,11 @@ class RunResult:
 
 def run_agent(message: str, provider: Provider, toolbox: ToolBox | None = None,
               max_steps: int | None = None) -> RunResult:
-    """Run one customer message through the agent. `max_steps` defaults to MAX_STEPS."""
+    """Run one customer message through the agent. `max_steps` defaults to MAX_STEPS.
+    Messages longer than MAX_MESSAGE_CHARS are truncated to that length."""
+    if len(message) > MAX_MESSAGE_CHARS:
+        log_message_truncated(len(message), MAX_MESSAGE_CHARS)
+        message = message[:MAX_MESSAGE_CHARS]
     return _run(message, provider, toolbox or ToolBox(), max_steps or MAX_STEPS)
 
 

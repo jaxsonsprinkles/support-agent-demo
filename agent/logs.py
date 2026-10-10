@@ -1,4 +1,5 @@
-"""Structured JSON logs to stderr. Off unless LOG_LEVEL is INFO or lower (LOG_LEVEL=INFO or DEBUG)."""
+"""Structured JSON logs to stderr. Tool calls log at INFO (off unless LOG_LEVEL=INFO or DEBUG);
+message truncation logs at WARNING (on by default, off at LOG_LEVEL=ERROR or above)."""
 from __future__ import annotations
 
 import json
@@ -15,6 +16,18 @@ def _level() -> int:
         return int(raw)
     lvl = logging.getLevelName(raw.upper()) if raw else logging.WARNING
     return lvl if isinstance(lvl, int) else logging.WARNING
+
+
+def log_message_truncated(original_len: int, max_len: int) -> None:
+    """Emit one JSON line at WARNING when a customer message is cut to max_len. Never logs the message itself."""
+    try:
+        if _level() > logging.WARNING:
+            return
+        line = json.dumps({"level": "WARNING", "event": "message_truncated",
+                           "original_length": original_len, "max_length": max_len})
+        print(line, file=sys.stderr, flush=True)
+    except Exception:
+        pass
 
 
 def log_tool_call(name: str, args: dict[str, Any], duration_ms: float) -> None:
