@@ -18,6 +18,7 @@ Demo target agent for [AgentBisect](https://github.com/jaxsonsprinkles/agentbise
 uv sync
 export ANTHROPIC_API_KEY=...        # required for real runs
 uv run python -m agent "Where is order 1042?"   # prints reply, tool calls, steps, tokens, trace id as JSON
+uv run python -m agent --verbose "Where is order 1042?"   # also lists each tool call + result on stderr
 uv run pytest
 ```
 

@@ -275,3 +275,37 @@ def test_tool_logs_silent_by_default_and_above_info(monkeypatch, capsys, level):
 def test_get_provider_rejects_unknown():
     with pytest.raises(ValueError):
         get_provider("bedrock")
+
+
+# --- CLI ---
+def _run_cli(monkeypatch, capsys, *args):
+    import agent.__main__ as cli
+    monkeypatch.delenv("LOG_LEVEL", raising=False)
+    p = ScriptedProvider([tu("lookup_order", {"order_id": "1042"}), text("It shipped: TRK-884201")])
+    monkeypatch.setattr(cli, "get_provider", lambda: p)
+    code = cli.main(["agent", *args])
+    return code, *capsys.readouterr()
+
+
+def test_cli_prints_json_only_by_default(monkeypatch, capsys):
+    code, out, err = _run_cli(monkeypatch, capsys, "Where is 1042?")
+    assert code == 0 and json.loads(out)["reply"] == "It shipped: TRK-884201" and err == ""
+
+
+@pytest.mark.parametrize("flag", ["--verbose", "-v"])
+def test_cli_verbose_prints_readable_tool_calls_after_reply(monkeypatch, capsys, flag):
+    code, out, err = _run_cli(monkeypatch, capsys, flag, "Where is 1042?")
+    assert code == 0 and json.loads(out)["reply"] == "It shipped: TRK-884201"  # stdout stays JSON
+    assert err.startswith('Tool calls (1):\n  1. lookup_order(order_id="1042")\n     -> {')
+    assert '"tracking_number": "TRK-884201"' in err
+
+
+def test_format_tool_calls_none():
+    from agent.__main__ import format_tool_calls
+    assert format_tool_calls([]) == "Tool calls: none"
+
+
+def test_cli_usage_error(capsys):
+    from agent.__main__ import main
+    assert main(["agent"]) == 2
+    assert "usage" in capsys.readouterr().err
