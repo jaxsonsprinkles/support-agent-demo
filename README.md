@@ -9,6 +9,7 @@ Demo target agent for [AgentBisect](https://github.com/jaxsonsprinkles/agentbise
 - `agent/` loop (`loop.py`, max 6 model calls), system prompt (`prompt.py`), model providers (`provider.py`), neatlogs tracing (`tracing.py`), CLI (`__main__.py`)
 - `tools/` four mocked tools with Anthropic tool-use schemas: `lookup_order`, `search_help`, `issue_refund`, `escalate_to_human`
 - `data/` seed orders (12) and help articles. Dates are fixed relative to `PINNED_TODAY = 2026-10-01`, so runs are repeatable
+- `evals/` 24 eval cases, harness and `python -m evals` CLI (see `evals/README.md`)
 - `tests/` pytest suite using `ScriptedProvider` (no network, no API key)
 
 ## Run
