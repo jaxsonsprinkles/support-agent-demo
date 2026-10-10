@@ -62,6 +62,20 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
         },
     },
     {
+        "name": "cancel_order",
+        "description": (
+            "Cancel an order that has not shipped yet. Use only when the customer explicitly asks to cancel; "
+            "look the order up first. Allowed only while the order status is processing; shipped or delivered "
+            "orders cannot be cancelled (offer a return instead). This changes the order and cannot be undone. "
+            "Returns a cancellation confirmation id."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {"order_id": {"type": "string", "description": "Order id, e.g. '1050'."}},
+            "required": ["order_id"],
+        },
+    },
+    {
         "name": "escalate_to_human",
         "description": (
             "Hand the conversation to a human agent. Use for angry customers, policy exceptions, and any refund "
@@ -160,6 +174,16 @@ class ToolBox:
         rid = f"RF-{self._refund_seq:04d}"
         o["refund_id"] = rid
         return {"refund_id": rid, "order_id": order_id, "amount_usd": round(float(amount), 2), "reason": reason}
+
+    def _tool_cancel_order(self, order_id: str) -> dict[str, Any]:
+        oid = _normalize_order_id(order_id)
+        o = self.orders.get(oid)
+        if not o:
+            return {"error": f"order '{oid}' not found"}
+        if o["status"] != "processing":
+            return {"error": f"order {oid} is {o['status']}; only unshipped (processing) orders can be cancelled"}
+        o["status"] = "cancelled"
+        return {"confirmation": f"CXL-{oid}", "order_id": oid, "status": "cancelled"}
 
     def _tool_escalate_to_human(self, summary: str, priority: str) -> dict[str, Any]:
         if priority not in {"low", "normal", "high", "urgent"}:

@@ -18,7 +18,7 @@ def text(t):
 
 # --- tools ---
 def test_schemas_are_anthropic_format_and_baseline_set():
-    assert [s["name"] for s in TOOL_SCHEMAS] == ["lookup_order", "search_help", "issue_refund", "escalate_to_human"]
+    assert [s["name"] for s in TOOL_SCHEMAS] == ["lookup_order", "search_help", "issue_refund", "cancel_order", "escalate_to_human"]
     for s in TOOL_SCHEMAS:
         assert s["description"] and s["input_schema"]["type"] == "object"
 
@@ -144,6 +144,41 @@ def test_refund_policy_enforced(oid, amt, frag):
     assert frag in ToolBox().call("issue_refund", {"order_id": oid, "amount": amt, "reason": "r"})["error"]
 
 
+@pytest.mark.parametrize("order_id", ["1050", "#1001", "order 1050"])
+def test_cancel_processing_order(order_id):
+    tb = ToolBox()
+    r = tb.call("cancel_order", {"order_id": order_id})
+    oid = r["order_id"]
+    assert r == {"confirmation": f"CXL-{oid}", "order_id": oid, "status": "cancelled"}
+    assert tb.call("lookup_order", {"order_id": oid})["orders"][0]["status"] == "cancelled"
+    assert "cancelled; only unshipped" in tb.call("cancel_order", {"order_id": oid})["error"]  # not twice
+
+
+@pytest.mark.parametrize("oid,frag", [
+    ("1042", "is shipped"), ("1007", "is delivered"), ("1012", "is refunded"), ("9999", "not found"),
+])
+def test_cancel_only_processing_orders(oid, frag):
+    tb = ToolBox()
+    before = tb.call("lookup_order", {"order_id": oid}).get("orders")
+    assert frag in tb.call("cancel_order", {"order_id": oid})["error"]
+    assert tb.call("lookup_order", {"order_id": oid}).get("orders") == before
+
+
+def test_cancel_schema_scoped_to_explicit_cancellations():
+    desc = next(s for s in TOOL_SCHEMAS if s["name"] == "cancel_order")["description"]
+    assert "explicitly asks to cancel" in desc and "processing" in desc
+    assert "any order question" not in desc.lower()
+    assert "cancel_order" in SYSTEM_PROMPT
+
+
+def test_cancel_through_loop():
+    p = ScriptedProvider([tu("lookup_order", {"order_id": "1050"}),
+                          tu("cancel_order", {"order_id": "1050"}, "t2"),
+                          text("Order 1050 is cancelled.")])
+    r = run_agent("Cancel 1050 please", p)
+    assert r.tool_calls[1]["result"]["confirmation"] == "CXL-1050" and r.steps == 3
+
+
 def test_escalate_deterministic_tickets():
     tb = ToolBox()
     assert tb.call("escalate_to_human", {"summary": "s", "priority": "high"})["ticket_id"] == "TKT-0001"
@@ -153,7 +188,7 @@ def test_escalate_deterministic_tickets():
 
 def test_unknown_tool_and_bad_args():
     tb = ToolBox()
-    assert "unknown tool" in tb.call("cancel_order", {"order_id": "1"})["error"]
+    assert "unknown tool" in tb.call("delete_account", {"email": "a@example.com"})["error"]
     assert "bad arguments" in tb.call("search_help", {})["error"]
 
 
@@ -176,7 +211,7 @@ def test_run_result_shape_and_tool_flow():
     assert set(r.to_dict()) == {"reply", "tool_calls", "steps", "input_tokens", "output_tokens", "trace_id", "hit_step_limit"}
     # tool result was fed back to the model, system prompt and tools passed
     assert p.calls[1]["messages"][-1]["content"][0]["type"] == "tool_result"
-    assert p.calls[0]["system"] == SYSTEM_PROMPT and len(p.calls[0]["tools"]) == 4
+    assert p.calls[0]["system"] == SYSTEM_PROMPT and len(p.calls[0]["tools"]) == 5
 
 
 def test_refund_through_loop():

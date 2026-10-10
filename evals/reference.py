@@ -7,33 +7,12 @@ Factories `good`, `r1`, `r2`, `r3` are callable(case) -> ScriptedProvider, usabl
 from __future__ import annotations
 
 import re
-from typing import Any
 
 from agent.provider import Response, ScriptedProvider
-from tools import ToolBox, TOOL_SCHEMAS
+from tools import ToolBox
 
-CANCEL_SCHEMA = {
-    "name": "cancel_order",
-    "description": "Cancel an order that has not shipped yet.",
-    "input_schema": {"type": "object", "properties": {"order_id": {"type": "string"}}, "required": ["order_id"]},
-}
-
-
-class ReferenceToolBox(ToolBox):
-    """Baseline toolbox plus cancel_order, as the R1 commit will add it."""
-
-    @property
-    def schemas(self) -> list[dict[str, Any]]:
-        return super().schemas + [CANCEL_SCHEMA]
-
-    def _tool_cancel_order(self, order_id: str) -> dict[str, Any]:
-        o = self.orders.get(str(order_id))
-        if not o:
-            return {"error": f"order '{order_id}' not found"}
-        if o["status"] != "processing":
-            return {"error": f"order {order_id} is {o['status']}; only unshipped orders can be cancelled"}
-        o["status"] = "cancelled"
-        return {"confirmation": f"CXL-{order_id}", "order_id": order_id, "status": "cancelled"}
+# The real ToolBox now ships cancel_order; kept as a name so `--toolbox evals.reference:ReferenceToolBox` still works.
+ReferenceToolBox = ToolBox
 
 
 def L(oid): return ("lookup_order", {"order_id": oid})

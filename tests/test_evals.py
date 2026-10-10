@@ -21,6 +21,14 @@ ROOT = Path(__file__).resolve().parent.parent
 RTB = ref.ReferenceToolBox
 
 
+class PreCancelToolBox(ToolBox):
+    """ToolBox as it was before cancel_order, to exercise the requires_tool skip path."""
+
+    @property
+    def schemas(self):
+        return [s for s in super().schemas if s["name"] != "cancel_order"]
+
+
 def run(reply="", calls=(), hit=False):
     return SimpleNamespace(reply=reply, tool_calls=[{"name": n, "args": a, "result": {}} for n, a in calls],
                            hit_step_limit=hit)
@@ -150,9 +158,9 @@ def test_run_case_check_failure_has_reasons():
 
 def test_run_case_skips_when_tool_missing():
     c = case("ca1")
-    r = run_case(c, ref.good(c))  # baseline ToolBox has no cancel_order
+    r = run_case(c, ref.good(c), toolbox_factory=PreCancelToolBox)
     assert r.status == "skipped" and "cancel_order" in r.reason and r.steps == 0 and not r.passed
-    assert "cancel_order" not in {s["name"] for s in ToolBox().schemas}
+    assert run_case(c, ref.good(c)).status == "pass"  # the real ToolBox has cancel_order
 
 
 def test_run_case_error_on_provider_failure():
@@ -219,8 +227,8 @@ def test_suite_good_all_pass_and_schema():
     json.dumps(rep)
 
 
-def test_suite_baseline_toolbox_skips_cancel_and_multistep():
-    rep = run_suite(load_cases(), ref.good)
+def test_suite_pre_cancel_toolbox_skips_cancel_and_multistep():
+    rep = run_suite(load_cases(), ref.good, toolbox_factory=PreCancelToolBox)
     skipped = {c["case_id"] for c in rep["cases"] if c["status"] == "skipped"}
     assert skipped == {"ca1", "ca2", "ca3", "ms1", "ms2"}
     assert rep["summary"]["skipped"] == 5 and rep["summary"]["executed"] == 19 and rep["summary"]["pass_rate"] == 1.0
