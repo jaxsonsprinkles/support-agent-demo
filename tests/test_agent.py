@@ -161,6 +161,24 @@ def test_search_help_address_article_stays_out_of_eval_queries(query):
     assert "address-change" not in [a["id"] for a in ToolBox().call("search_help", {"query": query})["articles"]]
 
 
+@pytest.mark.parametrize("query", [
+    "Do you ship internationally?", "which countries do you ship to", "do you ship to the UK",
+    "can I order from Australia", "do you deliver overseas", "Who pays customs duties?",
+    "will I have to pay import taxes",
+])
+def test_search_help_finds_international_shipping(query):
+    top = ToolBox().call("search_help", {"query": query})["articles"][0]
+    assert top["id"] == "international-shipping" and "paid by customers" in top["body"]
+
+
+@pytest.mark.parametrize("query", [c["input"] for c in map(json.loads, EVAL_CASES.read_text().splitlines())
+                                   if isinstance(c["input"], str)])
+def test_search_help_international_article_stays_out_of_eval_queries(query):
+    # No eval case is about international orders, so the new article must not take a slot on any of them.
+    ids = [a["id"] for a in ToolBox().call("search_help", {"query": query})["articles"]]
+    assert "international-shipping" not in ids
+
+
 def test_refund_ok_in_cents_and_partial():
     tb = ToolBox()
     r = tb.call("issue_refund", {"order_id": "1007", "amount": 6400, "reason": "broken"})
