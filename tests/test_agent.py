@@ -346,6 +346,10 @@ def test_prompt_requires_verification_search_and_retry():
     assert "Retry the call" in SYSTEM_PROMPT and "Do not retry write tools" in SYSTEM_PROMPT
 
 
+def test_prompt_states_refund_timing():
+    assert "typically appears within 5 to 7 business days" in SYSTEM_PROMPT
+
+
 def test_retry_and_verify_fits_in_step_limit():
     # lookup, retry lookup, search, rephrased search, then reply: well within MAX_STEPS
     p = ScriptedProvider([tu("lookup_order", {"order_id": "#1042"}, "t1"),
