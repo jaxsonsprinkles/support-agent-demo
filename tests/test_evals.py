@@ -7,6 +7,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from agent.loop import MAX_STEPS
 from agent.provider import Response, ScriptedProvider
 from evals import checks as ck
 from evals.cases import CATEGORY_COUNTS, Case, load_cases
@@ -171,9 +172,9 @@ def test_run_case_error_on_provider_failure():
 def test_step_limit_marks_unfinished():
     c = case("os1")
     loop = ScriptedProvider([Response([{"type": "tool_use", "id": f"t{i}", "name": "lookup_order",
-                                        "input": {"order_id": "1042"}}], "tool_use", 1, 1) for i in range(9)])
+                                        "input": {"order_id": "1042"}}], "tool_use", 1, 1) for i in range(MAX_STEPS + 3)])
     r = run_case(c, loop, toolbox_factory=RTB)
-    assert r.status == "fail" and r.steps == 6
+    assert r.status == "fail" and r.steps == MAX_STEPS
     assert not next(x for x in r.checks if x["check"] == "finished")["passed"]
 
 

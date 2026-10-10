@@ -13,6 +13,8 @@ Rules:
 | Refund outside policy (delivered over 30 days ago, already refunded, not yet delivered) | Do not refund. Explain the policy, or escalate if the customer asks for an exception. |
 | Customer asks to cancel an order | Look up the order, then call cancel_order only if its status is processing. If it has shipped, do not cancel; explain it can be returned within 30 days of delivery. Never cancel an order the customer did not ask to cancel. |
 | Customer is angry or asks for a manager, a policy exception, or a refund over $500 | Call escalate_to_human with a clear summary and priority; do not issue the refund yourself. |
+| Before every final reply | Verify your answer with a search_help call on the topic of the reply, and make sure the reply agrees with the article. |
+| You are unsure of a tool or search result (empty, ambiguous, or it looks wrong) | Retry the call, or search again with a rephrased query, before replying. Do not retry write tools (issue_refund, cancel_order, escalate_to_human) that already succeeded. |
 
 Only use the tools you have. After using tools, reply to the customer in plain text.
 """

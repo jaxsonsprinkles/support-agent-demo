@@ -316,11 +316,28 @@ def test_unknown_order_friendly_reply_left_alone():
 
 
 def test_step_limit():
-    assert MAX_STEPS == 6
+    assert MAX_STEPS == 12
     p = ScriptedProvider([tu("lookup_order", {"order_id": "1042"}, f"t{i}") for i in range(20)])
     r = run_agent("loop forever", p)
     assert r.steps == MAX_STEPS and r.hit_step_limit and len(r.tool_calls) == MAX_STEPS and r.reply
     assert len(p.script) == 20 - MAX_STEPS
+
+
+def test_prompt_requires_verification_search_and_retry():
+    assert "Before every final reply" in SYSTEM_PROMPT and "search_help" in SYSTEM_PROMPT
+    assert "Retry the call" in SYSTEM_PROMPT and "Do not retry write tools" in SYSTEM_PROMPT
+
+
+def test_retry_and_verify_fits_in_step_limit():
+    # lookup, retry lookup, search, rephrased search, then reply: well within MAX_STEPS
+    p = ScriptedProvider([tu("lookup_order", {"order_id": "#1042"}, "t1"),
+                          tu("lookup_order", {"order_id": "1042"}, "t2"),
+                          tu("search_help", {"query": "zzz"}, "t3"),
+                          tu("search_help", {"query": "shipping times"}, "t4"),
+                          text("Order 1042 has shipped.")])
+    r = run_agent("Where is order 1042?", p)
+    assert [c["name"] for c in r.tool_calls] == ["lookup_order", "lookup_order", "search_help", "search_help"]
+    assert r.steps == 5 and not r.hit_step_limit and r.reply == "Order 1042 has shipped."
 
 
 def test_max_steps_override():

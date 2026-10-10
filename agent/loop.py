@@ -12,7 +12,7 @@ from agent.provider import Provider
 from agent.tracing import current_trace_id, traced
 from tools import ToolBox
 
-MAX_STEPS = 6  # model calls per run
+MAX_STEPS = 12  # model calls per run; leaves room for verification searches and retries
 _UNKNOWN_ORDER = re.compile(r"^order '(.*)' not found$")
 
 
