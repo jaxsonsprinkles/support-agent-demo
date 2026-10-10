@@ -450,6 +450,15 @@ def test_cli_prints_json_only_by_default(monkeypatch, capsys):
     assert code == 0 and json.loads(out)["reply"] == "It shipped: TRK-884201" and err == ""
 
 
+def test_cli_reports_wall_clock_latency_ms(monkeypatch, capsys):
+    import types
+    import agent.__main__ as cli
+    clock = iter([10.0, 10.2345])
+    monkeypatch.setattr(cli, "time", types.SimpleNamespace(perf_counter=lambda: next(clock)))
+    code, out, _ = _run_cli(monkeypatch, capsys, "Where is 1042?")
+    assert code == 0 and json.loads(out)["latency_ms"] == 234.5
+
+
 @pytest.mark.parametrize("flag", ["--verbose", "-v"])
 def test_cli_verbose_prints_readable_tool_calls_after_reply(monkeypatch, capsys, flag):
     code, out, err = _run_cli(monkeypatch, capsys, flag, "Where is 1042?")

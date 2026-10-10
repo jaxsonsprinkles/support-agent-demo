@@ -1,6 +1,7 @@
 import argparse
 import json
 import sys
+import time
 from typing import Any
 
 from agent.loop import run_agent
@@ -32,8 +33,10 @@ def main(argv: list[str]) -> int:
         return int(e.code or 0)
     init_tracing()  # before the client is created so it can be wrapped
     try:
+        t0 = time.perf_counter()
         result = run_agent(args.message, get_provider())
-        print(json.dumps(result.to_dict(), indent=2), flush=True)
+        latency_ms = round((time.perf_counter() - t0) * 1000, 1)  # total wall-clock: model calls + tools
+        print(json.dumps({**result.to_dict(), "latency_ms": latency_ms}, indent=2), flush=True)
         if args.verbose:
             # stderr so stdout stays parseable JSON
             print(format_tool_calls(result.tool_calls), file=sys.stderr)
