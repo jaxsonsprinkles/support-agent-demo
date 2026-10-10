@@ -2,7 +2,7 @@ import json
 
 import pytest
 
-from agent.loop import MAX_STEPS, RunResult, run_agent
+from agent.loop import MAX_STEPS, RunResult, run_agent, unknown_order_reply
 from agent.provider import Response, ScriptedProvider, get_provider
 from agent.prompt import SYSTEM_PROMPT
 from tools import TOOL_SCHEMAS, ToolBox
@@ -220,6 +220,26 @@ def test_refund_through_loop():
                           text("Refunded $64.00")])
     r = run_agent("1007 arrived broken", p)
     assert r.tool_calls[1]["result"]["amount_usd"] == 64.0 and r.steps == 3
+
+
+@pytest.mark.parametrize("tool,args", [
+    ("lookup_order", {"order_id": "#9999"}),
+    ("cancel_order", {"order_id": "order 9999"}),
+    ("issue_refund", {"order_id": "9999", "amount": 5, "reason": "r"}),
+])
+def test_unknown_order_reply_apologises_instead_of_raw_error(tool, args):
+    p = ScriptedProvider([tu(tool, args), text("Error: order '9999' not found.")])
+    r = run_agent("Where is order #9999?", p)
+    assert r.tool_calls[0]["result"] == {"error": "order '9999' not found"}
+    assert r.reply == unknown_order_reply("9999")
+    assert "sorry" in r.reply.lower() and "double-check" in r.reply and "not found" not in r.reply
+
+
+def test_unknown_order_friendly_reply_left_alone():
+    friendly = "Sorry, I can't find order 9999. Could you double-check the number?"
+    r = run_agent("Where is 9999?", ScriptedProvider([tu("lookup_order", {"order_id": "9999"}), text(friendly)]))
+    assert r.reply == friendly
+    assert "double-check the order number" in SYSTEM_PROMPT and "Never repeat the raw tool error" in SYSTEM_PROMPT
 
 
 def test_step_limit():

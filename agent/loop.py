@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import time
 from dataclasses import asdict, dataclass, field
 from typing import Any
@@ -12,6 +13,22 @@ from agent.tracing import current_trace_id, traced
 from tools import ToolBox
 
 MAX_STEPS = 6  # model calls per run
+_UNKNOWN_ORDER = re.compile(r"^order '(.*)' not found$")
+
+
+def unknown_order_reply(order_id: str) -> str:
+    return (f"Sorry, I couldn't find an order with the number {order_id}. Could you double-check the order "
+            "number and send it again? Is there anything else we can help with?")
+
+
+def _guard_unknown_order(reply: str, tool_calls: list[dict[str, Any]]) -> str:
+    """Replace a reply that echoes a raw 'order ... not found' tool error with a customer-friendly apology."""
+    for tc in tool_calls:
+        err = tc["result"].get("error", "")
+        m = _UNKNOWN_ORDER.match(err)
+        if m and err.lower() in reply.lower():
+            return unknown_order_reply(m.group(1))
+    return reply
 
 
 @dataclass
@@ -44,7 +61,7 @@ def _run(message: str, provider: Provider, toolbox: ToolBox, max_steps: int) -> 
         res.input_tokens += r.input_tokens
         res.output_tokens += r.output_tokens
         if not r.tool_uses:
-            res.reply = r.text
+            res.reply = _guard_unknown_order(r.text, res.tool_calls)
             return res
         messages.append({"role": "assistant", "content": r.content})
         results = []
