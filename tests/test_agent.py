@@ -495,7 +495,8 @@ def test_prompt_requires_verification_search_and_retry():
 
 
 def test_prompt_states_refund_timing():
-    assert "typically appears within 5 to 7 business days" in SYSTEM_PROMPT
+    assert "typically appears within 5 business days" in SYSTEM_PROMPT
+    assert "5 to 7" not in SYSTEM_PROMPT
 
 
 def test_retry_and_verify_fits_in_step_limit():

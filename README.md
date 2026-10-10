@@ -47,7 +47,7 @@ Recent features, newest first (see `git log` for the full history):
 - **Help center**: international shipping and customs, address changes and gift cards articles.
 - **`escalate_to_human`**: optional `order_id`; ticket summaries always name the order.
 - **`issue_refund`**: amounts are integer US cents in and out, matching Stripe; new tests for policy limits and escalation tickets.
-- **Refund replies**: the agent tells customers refunds typically appear within 5 to 7 business days.
+- **Refund replies**: the agent tells customers refunds typically appear within 5 business days.
 - **CLI**: total wall-clock `latency_ms` in the JSON output; `--verbose` prints each tool call and result on stderr.
 - **`lookup_order`**: `estimated_delivery_date` for shipped orders; order ids normalised (`#1042`, `order 1042`); email lookup tolerant of case and whitespace.
 - **Agent loop**: customer messages capped at 2000 characters (truncation is logged); the agent verifies replies with `search_help` and retries uncertain tool calls (max 12 model calls).
