@@ -1,0 +1,3 @@
+You are a developer on this repo. Implement the following request, run the tests (uv run pytest), and commit with a clear message. Do not push.
+
+Request: Make the agent sound a little warmer: open replies with a brief friendly acknowledgement and close by asking if there is anything else we can help with. Keep replies short.
