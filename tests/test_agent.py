@@ -89,42 +89,60 @@ def test_search_help_top3_and_relevance():
     assert ToolBox().call("search_help", {"query": "warranty"})["articles"][0]["id"] == "warranty"
 
 
-# Top 3 for returns/shipping/warranty/payment questions, recorded before the gift-cards article existed.
-# New articles must not change these results.
+# Top 3 for returns/shipping/warranty/payment questions. Tied slots follow the explicit tie-break
+# (returns, shipping, warranty, then by id). New articles must not change these results.
 POLICY_SEARCH_BASELINE = {
-    "What's your return window?": ["returns", "warranty", "payments"],
-    "How long does standard shipping take?": ["shipping", "payments", "returns"],
+    "What's your return window?": ["returns", "warranty", "shipping"],
+    "How long does standard shipping take?": ["shipping", "returns", "warranty"],
     "Do your products come with a warranty?": ["warranty", "returns", "shipping"],
     "What payment methods do you accept?": ["payments", "returns", "warranty"],
-    "warranty": ["warranty", "payments", "returns"],
-    "shipping": ["shipping", "payments", "returns"],
-    "refund": ["returns", "payments", "shipping"],
+    "warranty": ["warranty", "returns", "shipping"],
+    "shipping": ["shipping", "returns", "warranty"],
+    "refund": ["returns", "shipping", "warranty"],
     "Can I return a broken item?": ["returns", "warranty", "shipping"],
-    "my item arrived damaged": ["returns", "shipping", "payments"],
-    "can I get my money back": ["returns", "shipping", "payments"],
-    "how do I track my package": ["shipping", "payments", "returns"],
+    "my item arrived damaged": ["returns", "shipping", "warranty"],
+    "can I get my money back": ["returns", "shipping", "warranty"],
+    "how do I track my package": ["shipping", "returns", "warranty"],
     "when will my order arrive": ["shipping", "payments", "returns"],
-    "is accidental damage covered": ["warranty", "payments", "returns"],
+    "is accidental damage covered": ["warranty", "returns", "shipping"],
     "do you accept credit cards": ["payments", "returns", "warranty"],
     "can I pay with PayPal": ["payments", "returns", "shipping"],
     "can I pay by invoice": ["payments", "returns", "shipping"],
-    "can I exchange an item": ["returns", "shipping", "payments"],
-    "how long do refunds take": ["returns", "shipping", "payments"],
-    "can I cancel my order": ["shipping", "returns", "payments"],
-    "express shipping": ["shipping", "payments", "returns"],
-    "what does the warranty cover": ["warranty", "payments", "returns"],
+    "can I exchange an item": ["returns", "shipping", "warranty"],
+    "how long do refunds take": ["returns", "shipping", "warranty"],
+    "can I cancel my order": ["shipping", "returns", "warranty"],
+    "express shipping": ["shipping", "returns", "warranty"],
+    "what does the warranty cover": ["warranty", "returns", "shipping"],
     "do you take visa card payments": ["payments", "returns", "shipping"],
-    "I want a refund for my order": ["returns", "shipping", "payments"],
-    "return policy": ["returns", "payments", "shipping"],
-    "repair my product": ["warranty", "payments", "returns"],
+    "I want a refund for my order": ["returns", "shipping", "warranty"],
+    "return policy": ["returns", "shipping", "warranty"],
+    "repair my product": ["warranty", "returns", "shipping"],
     "how do I pay": ["payments", "returns", "shipping"],
-    "delivery time": ["shipping", "returns", "payments"],
+    "delivery time": ["shipping", "returns", "warranty"],
 }
 
 
 @pytest.mark.parametrize("query,expected", POLICY_SEARCH_BASELINE.items())
 def test_search_help_policy_results_unchanged(query, expected):
     assert [a["id"] for a in ToolBox().call("search_help", {"query": query})["articles"]] == expected
+
+
+@pytest.mark.parametrize("query,top", [
+    ("What is your return window?", "returns"),
+    ("How long does standard shipping take?", "shipping"),
+    ("Do your products come with a warranty?", "warranty"),
+    ("What payment methods do you accept?", "payments"),
+])
+def test_search_help_tie_break_prefers_core_policy_articles(query, top):
+    # Ranking must not depend on articles.json order: reversing it leaves the results unchanged.
+    ids = [a["id"] for a in ToolBox().call("search_help", {"query": query})["articles"]]
+    tb = ToolBox()
+    tb.articles.reverse()
+    assert [a["id"] for a in tb.call("search_help", {"query": query})["articles"]] == ids
+    assert ids[0] == top
+    assert not {"address-change", "international-shipping"} & set(ids)
+    if top != "payments":
+        assert set(ids) == {"returns", "shipping", "warranty"}
 
 
 def test_search_help_card_query_only_changes_filler_slot():

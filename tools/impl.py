@@ -15,6 +15,8 @@ PINNED_TODAY = date(2026, 10, 1)
 REFUND_WINDOW_DAYS = 30
 DELIVERY_ESTIMATE_DAYS = 5
 DATA_DIR = Path(__file__).resolve().parent.parent / "data"
+# search_help tie-break: on equal scores these come first, in this order; other articles follow by id.
+CORE_ARTICLE_PRIORITY = ("returns", "shipping", "warranty")
 
 TOOL_SCHEMAS: list[dict[str, Any]] = [
     {
@@ -166,8 +168,12 @@ class ToolBox:
             s += sum(1 for w in words if w in a["body"].lower() or w in a["title"].lower())
             return s
 
-        # Stable sort: ties keep articles.json order, so a newly appended article never displaces existing ones.
-        ranked = sorted(self.articles, key=lambda a: -score(a))[:3]
+        # Explicit tie-break, independent of articles.json order: core policy articles first, then by id.
+        def tie_break(a: dict[str, Any]) -> tuple[int, str]:
+            return (CORE_ARTICLE_PRIORITY.index(a["id"]) if a["id"] in CORE_ARTICLE_PRIORITY
+                    else len(CORE_ARTICLE_PRIORITY), a["id"])
+
+        ranked = sorted(self.articles, key=lambda a: (-score(a), *tie_break(a)))[:3]
         return {"articles": [{"id": a["id"], "title": a["title"], "body": a["body"]} for a in ranked]}
 
     def _tool_issue_refund(self, order_id: str, amount: int, reason: str) -> dict[str, Any]:
