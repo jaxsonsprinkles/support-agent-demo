@@ -195,6 +195,63 @@ def test_refund_policy_enforced(oid, amt, frag):
     assert frag in ToolBox().call("issue_refund", {"order_id": oid, "amount": amt, "reason": "r"})["error"]
 
 
+def _refund(tb, oid, amount):
+    return tb.call("issue_refund", {"order_id": oid, "amount": amount, "reason": "r"})
+
+
+@pytest.mark.parametrize("oid,total", [("1007", 6400), ("1015", 7999), ("1060", 3600)])
+def test_refund_over_total_rejected_and_full_total_allowed(oid, total):
+    tb = ToolBox()
+    assert _refund(tb, oid, total + 1) == {"error": f"amount {total + 1} cents (${(total + 1) / 100:.2f}) exceeds "
+                                                    f"order total {total} cents (${total / 100:.2f})"}
+    assert tb.orders[oid]["refund_id"] is None  # rejection leaves the order refundable
+    assert _refund(tb, oid, total)["amount"] == total
+
+
+def test_refund_over_total_does_not_consume_refund_id():
+    tb = ToolBox()
+    assert "exceeds order total" in _refund(tb, "1007", 100000)["error"]
+    assert _refund(tb, "1007", 6400)["refund_id"] == "RF-0101"
+
+
+@pytest.mark.parametrize("oid,days", [("0991", 45), ("0975", 56)])
+def test_refund_outside_window_rejected(oid, days):
+    tb = ToolBox()
+    assert _refund(tb, oid, 100) == {"error": f"order {oid} was delivered {days} days ago; refund window is 30 days"}
+    assert tb.orders[oid]["refund_id"] is None
+
+
+@pytest.mark.parametrize("delivered,ok", [("2026-09-01", True),    # day 30: last day in window
+                                          ("2026-08-31", False),   # day 31
+                                          ("2026-10-01", True)])   # delivered today
+def test_refund_window_boundary(delivered, ok):
+    tb = ToolBox()
+    tb.orders["1007"]["delivered_date"] = delivered
+    r = _refund(tb, "1007", 6400)
+    assert ("refund_id" in r) is ok
+    if not ok:
+        assert r["error"] == "order 1007 was delivered 31 days ago; refund window is 30 days"
+
+
+def test_refund_window_checked_before_amount():
+    # An out-of-window order reports the window, not the amount problem.
+    assert "refund window" in _refund(ToolBox(), "0991", 999999)["error"]
+
+
+def test_refund_seeded_refund_rejected_with_existing_id():
+    tb = ToolBox()
+    assert _refund(tb, "1012", 2500) == {"error": "order 1012 was already refunded (RF-0001)"}
+    assert tb.orders["1012"]["refund_id"] == "RF-0001"
+
+
+def test_refund_twice_rejected_even_for_remaining_balance():
+    tb = ToolBox()
+    rid = _refund(tb, "1015", 2000)["refund_id"]  # partial refund
+    assert _refund(tb, "1015", 1000) == {"error": f"order 1015 was already refunded ({rid})"}
+    assert tb.orders["1015"]["refund_id"] == rid
+    assert _refund(tb, "1007", 6400)["refund_id"] == "RF-0102"  # the rejected retry did not use an id
+
+
 @pytest.mark.parametrize("order_id", ["1050", "#1001", "order 1050"])
 def test_cancel_processing_order(order_id):
     tb = ToolBox()
@@ -288,6 +345,46 @@ def test_escalate_deterministic_tickets():
     assert tb.call("escalate_to_human", {"summary": "s", "priority": "high"})["ticket_id"] == "TKT-0001"
     assert tb.call("escalate_to_human", {"summary": "s", "priority": "low"})["ticket_id"] == "TKT-0002"
     assert "error" in tb.call("escalate_to_human", {"summary": "s", "priority": "meh"})
+
+
+@pytest.mark.parametrize("priority", ["low", "normal", "high", "urgent"])
+def test_escalate_creates_ticket_echoing_summary_and_priority(priority):
+    summary = "Customer wants a $800 refund on order 1088 (4K Monitor); over the $500 limit."
+    assert ToolBox().call("escalate_to_human", {"summary": summary, "priority": priority}) == {
+        "ticket_id": "TKT-0001", "priority": priority, "summary": summary}
+
+
+@pytest.mark.parametrize("priority", ["meh", "HIGH", " high", ""])
+def test_escalate_invalid_priority_creates_no_ticket(priority):
+    tb = ToolBox()
+    assert tb.call("escalate_to_human", {"summary": "s", "priority": priority}) == {
+        "error": "priority must be one of low, normal, high, urgent"}
+    assert tb.call("escalate_to_human", {"summary": "s", "priority": "high"})["ticket_id"] == "TKT-0001"
+
+
+def test_escalate_missing_args_creates_no_ticket():
+    tb = ToolBox()
+    assert "bad arguments" in tb.call("escalate_to_human", {"summary": "s"})["error"]
+    assert "bad arguments" in tb.call("escalate_to_human", {"priority": "high"})["error"]
+    assert tb.call("escalate_to_human", {"summary": "s", "priority": "high"})["ticket_id"] == "TKT-0001"
+
+
+def test_escalate_ticket_ids_are_per_toolbox():
+    tb = ToolBox()
+    tb.call("escalate_to_human", {"summary": "a", "priority": "low"})
+    assert ToolBox().call("escalate_to_human", {"summary": "b", "priority": "low"})["ticket_id"] == "TKT-0001"
+    assert tb.call("escalate_to_human", {"summary": "c", "priority": "low"})["ticket_id"] == "TKT-0002"
+
+
+def test_escalate_large_refund_through_loop():
+    summary = "Order 1088: customer requests full $800 refund; exceeds $500 limit."
+    p = ScriptedProvider([tu("lookup_order", {"order_id": "1088"}),
+                          tu("escalate_to_human", {"summary": summary, "priority": "high"}, "t2"),
+                          text("I've passed this to a specialist (ticket TKT-0001).")])
+    r = run_agent("Refund my $800 monitor, order 1088", p)
+    assert [c["name"] for c in r.tool_calls] == ["lookup_order", "escalate_to_human"]
+    assert r.tool_calls[1]["result"] == {"ticket_id": "TKT-0001", "priority": "high", "summary": summary}
+    assert p.calls[2]["messages"][-1]["content"][0]["type"] == "tool_result"
 
 
 def test_unknown_tool_and_bad_args():
