@@ -46,6 +46,23 @@ def test_lookup_by_blank_or_unknown_email_errors():
     assert tb.call("lookup_order", {"email": " nobody@example.com "}) == {"error": "no orders for 'nobody@example.com'"}
 
 
+@pytest.mark.parametrize("order_id", [
+    "1042", "#1042", " #1042 ", "# 1042", "\t1042\n", "order 1042", "Order #1042", "ORDER  1042",
+])
+def test_lookup_by_id_ignores_hash_prefix_and_whitespace(order_id):
+    orders = ToolBox().call("lookup_order", {"order_id": order_id})["orders"]
+    assert [o["order_id"] for o in orders] == ["1042"]
+
+
+def test_lookup_by_id_keeps_leading_zeros_and_errors_on_blank_or_unknown():
+    tb = ToolBox()
+    assert tb.call("lookup_order", {"order_id": "#0991"})["orders"][0]["order_id"] == "0991"
+    assert "error" in tb.call("lookup_order", {"order_id": "991"})
+    assert tb.call("lookup_order", {"order_id": " # "}) == {"error": "provide order_id or email"}
+    assert tb.call("lookup_order", {"order_id": " #9999 "}) == {"error": "order '9999' not found"}
+    assert len(tb.call("lookup_order", {"order_id": "  ", "email": "kai.nguyen@example.com"})["orders"]) == 1
+
+
 def test_search_help_top3_and_relevance():
     r = ToolBox().call("search_help", {"query": "what is your return window?"})
     assert len(r["articles"]) == 3 and r["articles"][0]["id"] == "returns"

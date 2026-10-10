@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import copy
 import json
+import re
 from datetime import date
 from pathlib import Path
 from typing import Any
@@ -83,6 +84,14 @@ def _normalize_email(email: str) -> str:
     return "".join(email.split()).casefold()
 
 
+_ORDER_ID_PREFIX = re.compile(r"^\s*(?:order\b)?[\s#]*", re.IGNORECASE)
+
+
+def _normalize_order_id(order_id: str) -> str:
+    """Drop how customers write ids ('#1042', 'order 1042', ' 1042 '); leading zeros are significant."""
+    return _ORDER_ID_PREFIX.sub("", str(order_id)).strip()
+
+
 class ToolBox:
     """Per-run tool state (refunds issued, tickets opened). Create a fresh one for every run."""
 
@@ -109,9 +118,10 @@ class ToolBox:
 
     # -- tools ---------------------------------------------------------
     def _tool_lookup_order(self, order_id: str | None = None, email: str | None = None) -> dict[str, Any]:
-        if order_id:
-            o = self.orders.get(str(order_id).lstrip("#"))
-            return {"orders": [o]} if o else {"error": f"order '{order_id}' not found"}
+        oid = _normalize_order_id(order_id) if order_id else ""
+        if oid:
+            o = self.orders.get(oid)
+            return {"orders": [o]} if o else {"error": f"order '{oid}' not found"}
         key = _normalize_email(email) if email else ""
         if key:
             found = [o for o in self.orders.values() if _normalize_email(o["customer_email"]) == key]
