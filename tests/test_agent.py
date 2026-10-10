@@ -164,6 +164,59 @@ def test_cancel_only_processing_orders(oid, frag):
     assert tb.call("lookup_order", {"order_id": oid}).get("orders") == before
 
 
+@pytest.mark.parametrize("order_id,oid", [
+    ("9999", "9999"), ("#9999", "9999"), ("order 9999", "9999"),
+    ("991", "991"),  # leading zeros are significant: 0991 exists, 991 does not
+    ("1050x", "1050x"),
+])
+def test_cancel_unknown_order(order_id, oid):
+    tb = ToolBox()
+    before = {k: dict(v) for k, v in tb.orders.items()}
+    assert tb.call("cancel_order", {"order_id": order_id}) == {"error": f"order '{oid}' not found"}
+    assert tb.orders == before
+
+
+@pytest.mark.parametrize("order_id,oid,status", [
+    ("1042", "1042", "shipped"), ("#1023", "1023", "shipped"),
+    ("1007", "1007", "delivered"), ("order 1060", "1060", "delivered"), ("0991", "0991", "delivered"),
+])
+def test_cancel_already_shipped_or_delivered(order_id, oid, status):
+    tb = ToolBox()
+    before = dict(tb.orders[oid])
+    assert tb.call("cancel_order", {"order_id": order_id}) == {
+        "error": f"order {oid} is {status}; only unshipped (processing) orders can be cancelled"}
+    assert tb.orders[oid] == before
+
+
+@pytest.mark.parametrize("first,again", [("1050", "1050"), ("1001", "#1001"), ("order 1050", "1050")])
+def test_cancel_already_cancelled(first, again):
+    tb = ToolBox()
+    oid = tb.call("cancel_order", {"order_id": first})["order_id"]
+    after_first = dict(tb.orders[oid])
+    assert tb.call("cancel_order", {"order_id": again}) == {
+        "error": f"order {oid} is cancelled; only unshipped (processing) orders can be cancelled"}
+    assert tb.orders[oid] == after_first
+
+
+def test_cancel_only_touches_the_requested_order():
+    tb = ToolBox()
+    tb.call("cancel_order", {"order_id": "1050"})
+    assert tb.orders["1001"]["status"] == "processing"
+    assert ToolBox().orders["1050"]["status"] == "processing"  # fresh ToolBox starts from seed data
+    assert "confirmation" in tb.call("cancel_order", {"order_id": "1001"})
+
+
+def test_cancel_shipped_through_loop_returns_error_to_model():
+    p = ScriptedProvider([tu("lookup_order", {"order_id": "1042"}),
+                          tu("cancel_order", {"order_id": "1042"}, "t2"),
+                          text("Order 1042 has shipped, so I can't cancel it; you can return it instead.")])
+    r = run_agent("Cancel 1042", p)
+    assert r.tool_calls[1]["result"] == {
+        "error": "order 1042 is shipped; only unshipped (processing) orders can be cancelled"}
+    assert p.calls[2]["messages"][-1]["content"][0]["type"] == "tool_result"
+    assert r.reply.startswith("Order 1042 has shipped")
+
+
 def test_cancel_schema_scoped_to_explicit_cancellations():
     desc = next(s for s in TOOL_SCHEMAS if s["name"] == "cancel_order")["description"]
     assert "explicitly asks to cancel" in desc and "processing" in desc
