@@ -647,3 +647,27 @@ def test_cli_usage_error(capsys):
     from agent.__main__ import main
     assert main(["agent"]) == 2
     assert "usage" in capsys.readouterr().err
+
+
+def test_flaky_search_help_is_deterministic_and_recoverable(monkeypatch):
+    monkeypatch.setenv("DEMO_FLAKE", "1")
+
+    def outcomes(seed):
+        tb = ToolBox(flake_seed=seed)
+        return ["error" in tb.call("search_help", {"query": "returns"}) for _ in range(40)]
+
+    a = outcomes("os1:0")
+    assert a == outcomes("os1:0")  # reproducible
+    assert 0 < sum(a) < 40  # some timeouts, not all
+    assert a != outcomes("os1:1")  # different repeat, different pattern
+    r = ToolBox(flake_seed="s").call("lookup_order", {"order_id": "1042"})
+    assert "error" not in r  # only search_help flakes
+    tb = ToolBox(flake_seed="os1:0")
+    errs = [r for r in (tb.call("search_help", {"query": "returns"}) for _ in range(40)) if "error" in r]
+    assert errs[0]["retryable"] is True and errs[0]["error"].startswith("timeout")
+
+
+def test_flake_off_with_demo_flake_zero(monkeypatch):
+    monkeypatch.setenv("DEMO_FLAKE", "0")
+    tb = ToolBox(flake_seed="os1:0")
+    assert all("error" not in tb.call("search_help", {"query": "returns"}) for _ in range(60))

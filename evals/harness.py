@@ -136,7 +136,9 @@ def run_case(case: Case, provider: Any, *, toolbox_factory: Callable[[], Any] | 
     res = CaseResult(case.id, case.category, case.held_out, repeat=repeat,
                      agent_model=agent_model or getattr(provider, "model", None) or models.agent_model(),
                      judge_model=judge_model or getattr(judge, "model", None) or models.judge_model())
-    toolbox = (toolbox_factory or ToolBox)()
+    # flaky tool is seeded per (case, repeat) so reruns reproduce the same timeouts (see DEMO_FLAKE_SEED / DEMO_FLAKE)
+    flake_seed = f"{os.environ.get('DEMO_FLAKE_SEED', '')}:{case.id}:{repeat}"
+    toolbox = toolbox_factory() if toolbox_factory else ToolBox(flake_seed=flake_seed)
     if case.requires_tool and case.requires_tool not in {s["name"] for s in toolbox.schemas}:
         res.status, res.reason = "skipped", f"requires tool '{case.requires_tool}' which this commit does not have"
         return res

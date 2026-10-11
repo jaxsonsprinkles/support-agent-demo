@@ -5,7 +5,9 @@ Dates are fixed relative to PINNED_TODAY (never the wall clock) so runs are repe
 from __future__ import annotations
 
 import copy
+import hashlib
 import json
+import os
 import re
 from datetime import date, timedelta
 from pathlib import Path
@@ -123,10 +125,28 @@ def _with_delivery_estimate(o: dict[str, Any]) -> dict[str, Any]:
     return {**o, "estimated_delivery_date": eta}
 
 
-class ToolBox:
-    """Per-run tool state (refunds issued, tickets opened). Create a fresh one for every run."""
+FLAKY_TOOL = "search_help"  # the one mocked tool that sometimes times out (demo of a recoverable tool failure)
+FLAKE_RATE = 0.3
 
-    def __init__(self) -> None:
+
+class ToolTimeout(Exception):
+    """Raised by a flaky mocked tool; ToolBox.call turns it into a retryable timeout error result."""
+
+
+def flake_enabled() -> bool:
+    return os.environ.get("DEMO_FLAKE", "1") != "0"
+
+
+class ToolBox:
+    """Per-run tool state (refunds issued, tickets opened). Create a fresh one for every run.
+
+    `flake_seed` (default env DEMO_FLAKE_SEED) makes the flaky tool deterministic: the n-th call of the flaky
+    tool times out iff sha256(seed:tool:n) falls under FLAKE_RATE. Harness passes "<case>:<repeat>" per run.
+    DEMO_FLAKE=0 turns flakiness off."""
+
+    def __init__(self, flake_seed: str | None = None) -> None:
+        self.flake_seed = flake_seed if flake_seed is not None else os.environ.get("DEMO_FLAKE_SEED", "")
+        self._flaky_calls = 0
         self.orders: dict[str, dict[str, Any]] = {
             o["order_id"]: o for o in json.loads((DATA_DIR / "orders.json").read_text())
         }
@@ -143,9 +163,20 @@ class ToolBox:
         if fn is None:
             return {"error": f"unknown tool '{name}'"}
         try:
+            if name == FLAKY_TOOL and flake_enabled():
+                self._maybe_time_out(name)
             return fn(**args)
+        except ToolTimeout as e:
+            return {"error": f"timeout: {e}", "retryable": True}
         except TypeError as e:
             return {"error": f"bad arguments: {e}"}
+
+    def _maybe_time_out(self, name: str) -> None:
+        n = self._flaky_calls
+        self._flaky_calls += 1
+        h = int.from_bytes(hashlib.sha256(f"{self.flake_seed}:{name}:{n}".encode()).digest()[:8], "big")
+        if h / 2**64 < FLAKE_RATE:
+            raise ToolTimeout(f"{name} timed out after 5s; the call can be retried")
 
     # -- tools ---------------------------------------------------------
     def _tool_lookup_order(self, order_id: str | None = None, email: str | None = None) -> dict[str, Any]:
