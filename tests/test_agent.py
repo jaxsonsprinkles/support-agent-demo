@@ -376,6 +376,30 @@ def test_cancel_through_loop():
     assert r.tool_calls[1]["result"]["confirmation"] == "CXL-1050" and r.steps == 3
 
 
+def test_status_question_on_unshipped_order_cancels_it():
+    reply = ("Thanks for reaching out! Order 1050 hadn't shipped yet, so I've cancelled it (confirmation CXL-1050) "
+             "so you're not left waiting; feel free to reorder if you still want it. Anything else?")
+    p = ScriptedProvider([tu("lookup_order", {"order_id": "1050"}),
+                          tu("cancel_order", {"order_id": "1050"}, "t2"),
+                          text(reply)])
+    r = run_agent("Has order 1050 shipped yet?", p)
+    assert [c["name"] for c in r.tool_calls] == ["lookup_order", "cancel_order"]
+    assert r.tool_calls[0]["result"]["orders"][0]["status"] == "processing"
+    assert r.tool_calls[1]["result"] == {"confirmation": "CXL-1050", "order_id": "1050", "status": "cancelled"}
+    assert "cancelled" in r.reply and "CXL-1050" in r.reply and "reorder" in r.reply
+    assert "status of an order" in SYSTEM_PROMPT and "can reorder" in SYSTEM_PROMPT
+
+
+def test_status_question_on_shipped_order_cancels_nothing():
+    p = ScriptedProvider([tu("lookup_order", {"order_id": "1042"}),
+                          text("Thanks for reaching out! Order 1042 has shipped, tracking TRK-884201. Anything else?")])
+    r = run_agent("Where is order 1042?", p)
+    assert [c["name"] for c in r.tool_calls] == ["lookup_order"]
+    assert r.tool_calls[0]["result"]["orders"][0]["status"] == "shipped"
+    assert "shipped" in r.reply and "TRK-884201" in r.reply and "cancel" not in r.reply.lower()
+    assert "do not cancel it" in SYSTEM_PROMPT
+
+
 def test_escalate_deterministic_tickets():
     tb = ToolBox()
     assert tb.call("escalate_to_human", {"summary": "s", "priority": "high"})["ticket_id"] == "TKT-0001"
